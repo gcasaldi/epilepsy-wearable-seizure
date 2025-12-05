@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Epilepsy Seizure Prediction</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- LOGIN SCREEN -->
+    <div id="loginScreen" class="screen active">
+        <div class="container">
+            <div class="login-card">
+                <h1>🧠 Epilepsy Monitor</h1>
+                <p class="subtitle">Sistema di Previsione Crisi Epilettiche</p>
+                
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label for="username">Username</label>
+                        <input type="text" id="username" required autocomplete="username">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" required autocomplete="current-password">
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">Accedi</button>
+                    
+                    <div id="loginError" class="error-message"></div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- DASHBOARD SCREEN -->
+    <div id="dashboardScreen" class="screen">
+        <div class="container">
+            <!-- Header -->
+            <div class="header">
+                <h2>🧠 Epilepsy Monitor</h2>
+                <div class="user-info">
+                    <span id="currentUser"></span>
+                    <button id="logoutBtn" class="btn btn-secondary">Esci</button>
+                </div>
+            </div>
+
+            <!-- Risk Display -->
+            <div id="riskDisplay" class="risk-display">
+                <div class="risk-indicator" id="riskIndicator">
+                    <div class="risk-circle" id="riskCircle">
+                        <span class="risk-score" id="riskScore">--</span>
+                    </div>
+                </div>
+                <h3 id="riskMessage">In attesa di dati...</h3>
+                <p class="risk-subtitle" id="riskSubtitle">Connettere il dispositivo wearable</p>
+            </div>
+
+            <!-- Data Input Form (simula dati da wearable) -->
+            <div class="data-form-card">
+                <h3>📊 Dati Fisiologici</h3>
+                <p class="form-description">Simula invio dati dal wearable</p>
+                
+                <form id="dataForm">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="hrv">HRV (ms)</label>
+                            <input type="number" id="hrv" value="50" min="0" max="200" step="0.1" required>
+                            <small>Heart Rate Variability (20-100 normale)</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="heartRate">Battito (bpm)</label>
+                            <input type="number" id="heartRate" value="75" min="30" max="220" required>
+                            <small>Frequenza cardiaca (60-100 normale)</small>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="movement">Movimento</label>
+                            <input type="number" id="movement" value="120" min="0" step="0.1" required>
+                            <small>Livello attività (50-200 normale)</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="sleepHours">Ore di sonno</label>
+                            <input type="number" id="sleepHours" value="7.5" min="0" max="24" step="0.1" required>
+                            <small>Ultime 24h (7-9 raccomandato)</small>
+                        </div>
+                    </div>
+
+                    <div class="form-group checkbox-group">
+                        <label>
+                            <input type="checkbox" id="medicationTaken" checked>
+                            <span>Farmaci assunti regolarmente</span>
+                        </label>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary btn-large">
+                        📤 Invia Dati e Calcola Rischio
+                    </button>
+                </form>
+            </div>
+
+            <!-- Auto-send toggle -->
+            <div class="auto-send-card">
+                <label class="toggle-label">
+                    <input type="checkbox" id="autoSend">
+                    <span>🔄 Invio automatico ogni 5 secondi</span>
+                </label>
+            </div>
+
+            <!-- Connection Status -->
+            <div id="connectionStatus" class="connection-status">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">Connesso</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
