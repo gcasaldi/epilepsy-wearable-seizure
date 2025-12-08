@@ -9,10 +9,14 @@ android {
 
     defaultConfig {
         applicationId = "com.epilepsy.wearmonitor"
-        minSdk = 30
+        minSdk = 28  // Compatibile con più emulatori Wear OS
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+        
+        vectorDrawables {
+            useSupportLibrary = true
+        }
     }
 
     buildTypes {

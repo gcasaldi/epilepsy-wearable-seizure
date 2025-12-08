@@ -42,11 +42,13 @@
             </intent-filter>
         </activity>
         
-        <!-- Foreground service per monitoraggio continuo -->
+        <!-- Foreground service per monitoraggio continuo (TODO: implementare) -->
+        <!--
         <service
             android:name=".service.MonitoringService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="health" />
+        -->
     </application>
 </manifest>
