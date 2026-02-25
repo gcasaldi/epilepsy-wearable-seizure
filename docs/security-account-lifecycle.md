@@ -87,10 +87,13 @@ Ogni accesso a dati sanitari deve essere:
 
 Già introdotto nel backend corrente:
 - login Google + JWT applicativo
+- provisioning persistente utente su login
 - CORS restrittivo configurabile
 - trusted hosts configurabili
 - rate limiting in-memory su endpoint auth
 - security headers base su risposte auth/api
+- endpoint `DELETE /api/account` con soft delete + revoca consensi/link caregiver
+- invalidazione sessione via `token_version` nel JWT
 
 Da completare nel prossimo step:
 - persistenza DB per soft delete/consensi/versioning

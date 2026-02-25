@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audit Ente - Epilessia Platform</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-page="provider-audit" class="page">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a href="/" class="brand">🧠 Epilessia Platform</a>
+      <nav class="nav">
+        <a href="/provider/dashboard" class="nav-link">Dashboard Ente</a>
+        <a href="/provider/patients" class="nav-link">Pazienti</a>
+        <a href="/provider/invites" class="nav-link">Inviti</a>
+        <a href="/provider/audit" class="nav-link">Audit</a>
+        <button class="btn btn-secondary hidden" data-nav-logout>Esci</button>
+        <span class="nav-link hidden" data-user-badge></span>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="page-head">
+      <h1>Audit Ente</h1>
+      <p class="muted">Accessi, export e consensi tracciati.</p>
+    </section>
+
+    <section class="card">
+      <table class="table">
+        <thead><tr><th>Azione</th><th>Entità</th><th>Quando</th></tr></thead>
+        <tbody id="auditLogs"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="/static/web.js"></script>
+</body>
+</html>

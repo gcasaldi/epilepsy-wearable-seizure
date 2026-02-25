@@ -10,6 +10,8 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from app.config import settings
+from app.security_db import SessionLocal
+from app.security_service import is_session_valid
 
 # Context per hashing password
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -79,6 +81,44 @@ def authenticate_user(username: str, password: str) -> Optional[str]:
     return username
 
 
+def get_local_account_profile(username: str, password: str) -> Optional[dict]:
+    """
+    Risolve profilo account locale (admin/demo) e valida credenziali.
+
+    Returns:
+        dict con email/account_type/provider_status/auth_provider oppure None.
+    """
+    if username == settings.admin_username:
+        authenticated_username = authenticate_user(username, password)
+        if not authenticated_username:
+            return None
+        return {
+            "email": authenticated_username,
+            "account_type": "personal",
+            "provider_status": None,
+            "auth_provider": "local",
+        }
+
+    if settings.enable_demo_accounts:
+        if username == settings.demo_user_username and password == settings.demo_user_password:
+            return {
+                "email": settings.demo_user_username,
+                "account_type": "personal",
+                "provider_status": None,
+                "auth_provider": "demo",
+            }
+
+        if username == settings.demo_provider_username and password == settings.demo_provider_password:
+            return {
+                "email": settings.demo_provider_username,
+                "account_type": "provider",
+                "provider_status": "provider_verified",
+                "auth_provider": "demo",
+            }
+
+    return None
+
+
 def verify_google_id_token(token: str) -> Optional[str]:
     """
     Verifica un Google ID token e restituisce l'identificativo utente.
@@ -133,9 +173,17 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         token = credentials.credentials
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         username: Optional[str] = payload.get("sub")
+        token_version: Optional[int] = payload.get("ver")
         
         if username is None:
             raise credentials_exception
+
+        db = SessionLocal()
+        try:
+            if not is_session_valid(db, username, token_version):
+                raise credentials_exception
+        finally:
+            db.close()
             
     except JWTError:
         raise credentials_exception

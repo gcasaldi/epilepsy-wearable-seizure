@@ -6,26 +6,37 @@ from datetime import datetime, timedelta
 import logging
 import time
 from collections import defaultdict, deque
+from pathlib import Path
 from typing import Deque, Dict
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.models import (
-    LoginRequest, GoogleLoginRequest, TokenResponse, PhysiologicalData,
+    LoginRequest, GoogleLoginRequest, TokenResponse, AccountDeleteResponse, PhysiologicalData,
     RiskPrediction, HealthStatus
 )
 from app.auth import (
-    authenticate_user,
     create_access_token,
     get_current_user,
+    get_local_account_profile,
     get_password_hash,
     verify_google_id_token,
 )
 from app.predictor import predictor
 from app.config import settings
+from app.security_db import SessionLocal, init_security_db
+from app.security_service import (
+    ensure_provider_organization_context,
+    ensure_user_exists,
+    get_user_by_email,
+    get_provider_status,
+    list_active_consents_for_user,
+    soft_delete_account,
+)
 
 # Logging
 logging.basicConfig(
@@ -77,6 +88,13 @@ auth_rate_limiter = AuthRateLimiter(
     window_seconds=settings.auth_rate_limit_window_seconds,
     max_attempts=settings.auth_rate_limit_max_attempts,
 )
+
+init_security_db()
+FRONTEND_DIR = Path("frontend")
+
+
+def frontend_page(filename: str) -> FileResponse:
+    return FileResponse(FRONTEND_DIR / filename)
 
 # CORS
 app.add_middleware(
@@ -141,20 +159,83 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 @app.get("/", tags=["Root"])
 async def root():
-    """Informazioni sul servizio"""
-    return {
-        "service": settings.app_name,
-        "version": settings.app_version,
-        "status": "online",
-        "authentication": "JWT Bearer Token required",
-        "endpoints": {
-            "google_login": "POST /auth/google",
-            "login": "POST /auth/login",
-            "health": "GET /health",
-            "predict": "POST /api/predict (protected)",
-            "docs": "/docs"
-        }
-    }
+    """Landing web app"""
+    return frontend_page("landing.html")
+
+
+@app.get("/login", include_in_schema=False)
+async def login_page():
+    return frontend_page("login.html")
+
+
+@app.get("/login/provider", include_in_schema=False)
+async def provider_login_page():
+    return frontend_page("login-provider.html")
+
+
+@app.get("/app", include_in_schema=False)
+async def app_download_page():
+    return frontend_page("app-download.html")
+
+
+@app.get("/dashboard", include_in_schema=False)
+async def patient_dashboard_page():
+    return frontend_page("dashboard.html")
+
+
+@app.get("/consents", include_in_schema=False)
+async def consents_page():
+    return frontend_page("consents.html")
+
+
+@app.get("/settings", include_in_schema=False)
+async def settings_page():
+    return frontend_page("settings.html")
+
+
+@app.get("/provider", include_in_schema=False)
+async def provider_gate_page():
+    return frontend_page("provider.html")
+
+
+@app.get("/provider/dashboard", include_in_schema=False)
+async def provider_dashboard_page():
+    return frontend_page("provider-dashboard.html")
+
+
+@app.get("/provider/patients", include_in_schema=False)
+async def provider_patients_page():
+    return frontend_page("provider-patients.html")
+
+
+@app.get("/provider/invites", include_in_schema=False)
+async def provider_invites_page():
+    return frontend_page("provider-invites.html")
+
+
+@app.get("/provider/audit", include_in_schema=False)
+async def provider_audit_page():
+    return frontend_page("provider-audit.html")
+
+
+@app.get("/privacy", include_in_schema=False)
+async def privacy_page():
+    return frontend_page("privacy.html")
+
+
+@app.get("/terms", include_in_schema=False)
+async def terms_page():
+    return frontend_page("terms.html")
+
+
+@app.get("/contact", include_in_schema=False)
+async def contact_page():
+    return frontend_page("contact.html")
+
+
+@app.get("/disclaimer", include_in_schema=False)
+async def disclaimer_page():
+    return frontend_page("disclaimer.html")
 
 
 @app.get("/health", response_model=HealthStatus, tags=["Health"])
@@ -188,10 +269,9 @@ async def login(credentials: LoginRequest, http_request: Request):
     auth_rate_limiter.check(limiter_key)
     logger.info(f"Tentativo di login per utente: {credentials.username}")
     
-    # Autentica
-    username = authenticate_user(credentials.username, credentials.password)
+    account_profile = get_local_account_profile(credentials.username, credentials.password)
     
-    if not username:
+    if not account_profile:
         auth_rate_limiter.register(limiter_key)
         logger.warning(f"Login fallito per: {credentials.username}")
         raise HTTPException(
@@ -200,19 +280,32 @@ async def login(credentials: LoginRequest, http_request: Request):
         )
     
     # Crea token
+    db = SessionLocal()
+    try:
+        persisted_user = ensure_user_exists(
+            db,
+            email=account_profile["email"],
+            auth_provider=account_profile["auth_provider"],
+            account_type=account_profile["account_type"],
+            provider_status=account_profile["provider_status"],
+        )
+        ensure_provider_organization_context(db, persisted_user)
+    finally:
+        db.close()
+
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
     access_token = create_access_token(
-        data={"sub": username},
+        data={"sub": persisted_user.email, "ver": persisted_user.token_version},
         expires_delta=access_token_expires
     )
     
-    logger.info(f"Login riuscito per: {username}")
+    logger.info(f"Login riuscito per: {persisted_user.email}")
     
     return TokenResponse(
         access_token=access_token,
         token_type="bearer",
         expires_in=settings.access_token_expire_minutes * 60,
-        username=username
+        username=persisted_user.email
     )
 
 
@@ -242,9 +335,21 @@ async def google_login(payload: GoogleLoginRequest, http_request: Request):
         auth_rate_limiter.register(limiter_key)
         raise HTTPException(status_code=401, detail="Token Google non valido")
 
+    db = SessionLocal()
+    try:
+        persisted_user = ensure_user_exists(
+            db,
+            email=username,
+            auth_provider="google",
+            account_type="personal",
+            provider_status=None,
+        )
+    finally:
+        db.close()
+
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
     access_token = create_access_token(
-        data={"sub": username},
+        data={"sub": username, "ver": persisted_user.token_version},
         expires_delta=access_token_expires
     )
 
@@ -267,11 +372,84 @@ async def google_login(payload: GoogleLoginRequest, http_request: Request):
 )
 async def get_current_user_info(current_user: str = Depends(get_current_user)):
     """Restituisce informazioni sull'utente autenticato"""
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, current_user)
+    finally:
+        db.close()
+
     return {
         "username": current_user,
+        "account_type": user.account_type if user else "unknown",
+        "provider_status": user.provider_status if user else None,
+        "account_active": bool(user.is_active) if user else False,
         "authenticated": True,
         "timestamp": datetime.now()
     }
+
+
+@app.get(
+    "/api/provider/status",
+    tags=["Authentication"],
+    summary="Stato accesso ente sanitario"
+)
+async def provider_status(current_user: str = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        status_payload = get_provider_status(db, current_user)
+    finally:
+        db.close()
+
+    return {
+        "username": current_user,
+        **status_payload,
+    }
+
+
+@app.get(
+    "/api/consents",
+    tags=["Authentication"],
+    summary="Consensi attivi utente"
+)
+async def user_consents(current_user: str = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        consents = list_active_consents_for_user(db, current_user)
+    finally:
+        db.close()
+
+    return {
+        "count": len(consents),
+        "items": consents,
+    }
+
+
+@app.delete(
+    "/api/account",
+    response_model=AccountDeleteResponse,
+    tags=["Authentication"],
+    summary="Cancellazione account con revoca consensi"
+)
+async def delete_account(current_user: str = Depends(get_current_user)):
+    """
+    Soft delete account utente:
+    - blocco login
+    - revoca consensi attivi
+    - revoca link caregiver
+    - audit immutabile
+    """
+    db = SessionLocal()
+    try:
+        result = soft_delete_account(db, current_user)
+    finally:
+        db.close()
+
+    return AccountDeleteResponse(
+        status="deleted",
+        revoked_consents=result["revoked_consents"],
+        revoked_caregiver_links=result["revoked_caregiver_links"],
+        message="Account disattivato e consensi revocati con successo"
+    )
 
 
 @app.post(

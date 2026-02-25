@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard Ente - Epilessia Platform</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-page="provider-dashboard" class="page">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a href="/" class="brand">🧠 Epilessia Platform</a>
+      <nav class="nav">
+        <a href="/provider/dashboard" class="nav-link">Dashboard Ente</a>
+        <a href="/provider/patients" class="nav-link">Pazienti</a>
+        <a href="/provider/invites" class="nav-link">Inviti</a>
+        <a href="/provider/audit" class="nav-link">Audit</a>
+        <button class="btn btn-secondary hidden" data-nav-logout>Esci</button>
+        <span class="nav-link hidden" data-user-badge></span>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="page-head">
+      <h1>Dashboard Ente</h1>
+      <p class="muted">Organizzazione: <strong data-org-name></strong></p>
+    </section>
+
+    <section class="kpi">
+      <article class="card"><p class="muted">Pazienti collegati</p><h3>1</h3></article>
+      <article class="card"><p class="muted">Alert informativi</p><h3>2</h3></article>
+      <article class="card"><p class="muted">Diagnosi automatica</p><h3>NO</h3></article>
+    </section>
+
+    <section class="section">
+      <div class="card">
+        <p>Nessuna diagnosi automatica: la dashboard supporta monitoraggio e follow-up clinico strutturato.</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/web.js"></script>
+</body>
+</html>

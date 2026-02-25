@@ -17,6 +17,7 @@
 
 - Specifica tecnica pronta sviluppo: [docs/architecture-rbac-consent.md](docs/architecture-rbac-consent.md)
 - Sicurezza account/recovery/audit: [docs/security-account-lifecycle.md](docs/security-account-lifecycle.md)
+- Enterprise hardening (multi-istanza): [docs/enterprise-hardening-mini-spec.md](docs/enterprise-hardening-mini-spec.md)
 
 ## 📋 Prerequisiti
 
@@ -90,6 +91,15 @@ Il server sarà disponibile su: **http://localhost:8000**
 2. Accedi con **Google** (nessun form locale)
 3. Inserisci i parametri fisiologici o attiva l'invio automatico
 4. Visualizza il rischio in tempo reale e usa il link per aprire/scaricare l'app Wear
+
+### Credenziali demo (sviluppo)
+
+- Utente personale: `demo.user@epilepsy.local` / `DemoUser2026!`
+- Ente sanitario demo: `demo.ente@epilepsy.local` / `DemoEnte2026!`
+
+Verifica differenza profili con endpoint protetto `GET /api/me`:
+- l'utente personale restituisce `account_type=personal`
+- l'utente ente demo restituisce `account_type=provider` e provisioning ente verificato (ruolo admin) lato DB
 
 ### API Endpoints
 

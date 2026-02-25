@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scarica l'app - Epilessia Platform</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-page="app-download" class="page">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a href="/" class="brand">🧠 Epilessia Platform</a>
+      <nav class="nav">
+        <a href="/app" class="nav-link">Scarica app</a>
+        <a href="/login" class="nav-link" data-nav-login>Accedi</a>
+        <button class="btn btn-secondary hidden" data-nav-logout>Esci</button>
+        <span class="nav-link hidden" data-user-badge></span>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="page-head">
+      <h1>Usa l’app per registrare eventi e terapie</h1>
+      <p class="muted">L’app è il modo principale per i pazienti di monitorare l’epilessia.</p>
+    </section>
+
+    <div id="mobileRedirectNotice" class="banner hidden">Browser mobile rilevato: reindirizzamento allo store in corso…</div>
+
+    <section class="grid-2">
+      <article class="card">
+        <h3>Download</h3>
+        <p class="muted">Scegli il tuo store.</p>
+        <div class="hero-actions">
+          <a href="https://apps.apple.com/" class="btn btn-outline" target="_blank" rel="noopener noreferrer">App Store</a>
+          <a href="https://play.google.com/store" class="btn btn-outline" target="_blank" rel="noopener noreferrer">Google Play</a>
+          <a id="smartStoreLink" href="https://play.google.com/store" class="btn btn-primary">Apri store consigliato</a>
+        </div>
+      </article>
+      <article class="card">
+        <h3>QR code</h3>
+        <div class="qr">QR APP</div>
+        <p class="muted" style="margin-top:10px;">Scansiona per download rapido.</p>
+      </article>
+    </section>
+
+    <section class="section">
+      <div class="card">
+        <p>L’accesso web è disponibile per consultazione e gestione avanzata.</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/web.js"></script>
+</body>
+</html>

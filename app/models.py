@@ -102,3 +102,11 @@ class HealthStatus(BaseModel):
     version: str
     authenticated: bool
     timestamp: datetime
+
+
+class AccountDeleteResponse(BaseModel):
+    """Risposta cancellazione account con revoche applicate"""
+    status: str
+    revoked_consents: int
+    revoked_caregiver_links: int
+    message: str

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Consensi - Epilessia Platform</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-page="consents" class="page">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a href="/" class="brand">🧠 Epilessia Platform</a>
+      <nav class="nav">
+        <a href="/dashboard" class="nav-link">Dashboard</a>
+        <a href="/consents" class="nav-link">Consensi</a>
+        <a href="/settings" class="nav-link">Impostazioni</a>
+        <a href="/app" class="nav-link">Scarica app</a>
+        <a href="/login" class="nav-link" data-nav-login>Accedi</a>
+        <button class="btn btn-secondary hidden" data-nav-logout>Esci</button>
+        <span class="nav-link hidden" data-user-badge></span>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="banner">Per registrare eventi in modo semplice, scarica l’app. Web = controllo consensi e visione d’insieme.</div>
+
+    <section class="page-head">
+      <h1>Consensi attivi</h1>
+      <p class="muted">Utente: <strong id="consentsUser"></strong></p>
+    </section>
+
+    <section id="consentsList" class="grid-2"></section>
+  </main>
+
+  <script src="/static/web.js"></script>
+</body>
+</html>

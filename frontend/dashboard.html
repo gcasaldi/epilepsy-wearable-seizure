@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard Paziente - Epilessia Platform</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-page="dashboard" class="page">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a href="/" class="brand">🧠 Epilessia Platform</a>
+      <nav class="nav">
+        <a href="/dashboard" class="nav-link">Dashboard</a>
+        <a href="/consents" class="nav-link">Consensi</a>
+        <a href="/settings" class="nav-link">Impostazioni</a>
+        <a href="/app" class="nav-link">Scarica app</a>
+        <a href="/login" class="nav-link" data-nav-login>Accedi</a>
+        <button class="btn btn-secondary hidden" data-nav-logout>Esci</button>
+        <span class="nav-link hidden" data-user-badge></span>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="banner">Per registrare eventi in modo semplice, scarica l’app. Web = controllo, consenso, visione d’insieme. App = monitoraggio quotidiano.</div>
+
+    <section class="page-head">
+      <h1>Area Paziente</h1>
+      <p class="muted">Benvenuto, <strong id="patientWelcome"></strong></p>
+    </section>
+
+    <section class="kpi">
+      <article class="card"><p class="muted">Ultimo rischio</p><h3 id="lastRisk">N/D</h3></article>
+      <article class="card"><p class="muted">Consensi attivi</p><h3><a href="/consents">Gestisci</a></h3></article>
+      <article class="card"><p class="muted">Sicurezza account</p><h3><a href="/settings">Verifica</a></h3></article>
+    </section>
+
+    <section class="section">
+      <div class="card">
+        <h3>Riepilogo ultimi eventi</h3>
+        <p id="lastMessage" class="muted">Nessun evento disponibile.</p>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="card">
+        <p>Registrazione eventi clinici preferibilmente nell’app mobile. La web app è orientata a consultazione e gestione consensi.</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/web.js"></script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stato Ente - Epilessia Platform</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-page="provider-gate" class="page">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a href="/" class="brand">🧠 Epilessia Platform</a>
+      <nav class="nav">
+        <a href="/provider/dashboard" class="nav-link">Dashboard Ente</a>
+        <a href="/provider/patients" class="nav-link">Pazienti</a>
+        <a href="/provider/invites" class="nav-link">Inviti</a>
+        <a href="/provider/audit" class="nav-link">Audit</a>
+        <a href="/login/provider" class="nav-link" data-nav-login>Accedi Ente</a>
+        <button class="btn btn-secondary hidden" data-nav-logout>Esci</button>
+        <span class="nav-link hidden" data-user-badge></span>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="page-head">
+      <h1>Area Ente Sanitario</h1>
+      <p class="muted">Accesso completo disponibile solo con organization.status = verified.</p>
+    </section>
+
+    <div id="providerVerified" class="card hidden">
+      <h3>Ente verificato</h3>
+      <p class="muted">Reindirizzamento alla dashboard ente…</p>
+    </div>
+
+    <div id="providerPending" class="card hidden">
+      <h3>Verifica in corso (pending)</h3>
+      <p class="muted">Checklist requisiti:</p>
+      <ul class="muted">
+        <li>Email istituzionale verificata</li>
+        <li>Dati legali organizzazione</li>
+        <li>Conferma manuale del supporto</li>
+      </ul>
+      <p class="muted">Contatto supporto: support@epilessia-platform.example</p>
+    </div>
+
+    <div id="providerDenied" class="card hidden">
+      <h3>Accesso non disponibile</h3>
+      <p class="muted">Questo account non è autorizzato come ente sanitario verificato.</p>
+      <a href="/login/provider" class="btn btn-outline">Torna al login ente</a>
+    </div>
+  </main>
+
+  <script src="/static/web.js"></script>
+</body>
+</html>

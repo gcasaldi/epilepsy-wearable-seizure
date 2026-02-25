@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     app_name: str = "Epilepsy Seizure Prediction API"
     app_version: str = "1.0.0"
     debug: bool = True
+    database_url: str = "sqlite:///./epilepsy_security.db"
     
     # Security - JWT
     secret_key: str = "CHANGE-THIS-SECRET-KEY-IN-PRODUCTION-USE-LONG-RANDOM-STRING"
@@ -20,6 +21,13 @@ class Settings(BaseSettings):
     # Admin credentials (hashed password)
     admin_username: str = "admin"
     admin_password_hash: str = ""  # Generato al primo avvio
+
+    # Demo accounts (solo sviluppo)
+    enable_demo_accounts: bool = True
+    demo_user_username: str = "demo.user@epilepsy.local"
+    demo_user_password: str = "DemoUser2026!"
+    demo_provider_username: str = "demo.ente@epilepsy.local"
+    demo_provider_password: str = "DemoEnte2026!"
 
     # Google OAuth
     google_client_id: str = ""

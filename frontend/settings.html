@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Impostazioni - Epilessia Platform</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-page="settings" class="page">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a href="/" class="brand">🧠 Epilessia Platform</a>
+      <nav class="nav">
+        <a href="/dashboard" class="nav-link">Dashboard</a>
+        <a href="/consents" class="nav-link">Consensi</a>
+        <a href="/settings" class="nav-link">Impostazioni</a>
+        <a href="/app" class="nav-link">Scarica app</a>
+        <a href="/login" class="nav-link" data-nav-login>Accedi</a>
+        <button class="btn btn-secondary hidden" data-nav-logout>Esci</button>
+        <span class="nav-link hidden" data-user-badge></span>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="page-head">
+      <h1>Impostazioni account</h1>
+      <p class="muted">Utente: <strong id="settingsUser"></strong> · Tipo: <strong id="settingsType"></strong></p>
+    </section>
+
+    <section class="grid-2">
+      <article class="card">
+        <h3>Sicurezza</h3>
+        <p class="muted">Sessioni, recovery e protezione accesso.</p>
+      </article>
+      <article class="card">
+        <h3>Recupero account</h3>
+        <p class="muted">Flussi protetti con identità verificata.</p>
+      </article>
+      <article class="card">
+        <h3>Sessioni</h3>
+        <p class="muted">Token a durata limitata e invalidazione globale.</p>
+      </article>
+      <article class="card">
+        <h3>Cancella account</h3>
+        <p class="muted">Revoca immediata consensi e disattivazione accesso.</p>
+        <button id="deleteAccountBtn" class="btn btn-outline">Cancella account</button>
+      </article>
+    </section>
+  </main>
+
+  <script src="/static/web.js"></script>
+</body>
+</html>

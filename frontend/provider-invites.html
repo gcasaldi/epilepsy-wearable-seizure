@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inviti Ente - Epilessia Platform</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-page="provider-invites" class="page">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a href="/" class="brand">🧠 Epilessia Platform</a>
+      <nav class="nav">
+        <a href="/provider/dashboard" class="nav-link">Dashboard Ente</a>
+        <a href="/provider/patients" class="nav-link">Pazienti</a>
+        <a href="/provider/invites" class="nav-link">Inviti</a>
+        <a href="/provider/audit" class="nav-link">Audit</a>
+        <button class="btn btn-secondary hidden" data-nav-logout>Esci</button>
+        <span class="nav-link hidden" data-user-badge></span>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="page-head">
+      <h1>Inviti paziente ↔ ente</h1>
+      <p class="muted">Genera codice/QR, monitora stato inviti e audit.</p>
+    </section>
+
+    <section class="grid-2">
+      <article class="card">
+        <h3>Genera invito</h3>
+        <button id="generateInviteBtn" class="btn btn-primary">Genera codice</button>
+        <p style="margin-top:10px;">Codice: <strong id="inviteCode">—</strong></p>
+        <p id="qrStatus" class="muted"></p>
+      </article>
+      <article class="card">
+        <h3>QR invito</h3>
+        <div class="qr">QR INVITO</div>
+      </article>
+    </section>
+
+    <section class="section card">
+      <h3>Stato inviti</h3>
+      <p class="muted">Generated · Viewed · Used · Failed · Revoked (audit obbligatorio).</p>
+    </section>
+  </main>
+
+  <script src="/static/web.js"></script>
+</body>
+</html>
