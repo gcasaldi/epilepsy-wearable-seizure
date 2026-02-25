@@ -12,23 +12,13 @@
         <div class="container">
             <div class="login-card">
                 <h1>🧠 Epilepsy Monitor</h1>
-                <p class="subtitle">Sistema di Previsione Crisi Epilettiche</p>
-                
-                <form id="loginForm">
-                    <div class="form-group">
-                        <label for="username">Username</label>
-                        <input type="text" id="username" required autocomplete="username">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="password">Password</label>
-                        <input type="password" id="password" required autocomplete="current-password">
-                    </div>
-                    
-                    <button type="submit" class="btn btn-primary">Accedi</button>
-                    
-                    <div id="loginError" class="error-message"></div>
-                </form>
+                <p class="subtitle">Accesso privato con Google (nessun form da compilare)</p>
+
+                <div id="googleSigninContainer" class="google-signin-container"></div>
+
+                <p class="login-note">Dopo l'accesso potrai monitorare i dati e scaricare l'app per notifiche in tempo reale.</p>
+
+                <div id="loginError" class="error-message"></div>
             </div>
         </div>
     </div>
@@ -54,6 +44,14 @@
                 </div>
                 <h3 id="riskMessage">In attesa di dati...</h3>
                 <p class="risk-subtitle" id="riskSubtitle">Connettere il dispositivo wearable</p>
+            </div>
+
+            <div class="data-form-card">
+                <h3>📱 App Wear + Telefono</h3>
+                <p class="form-description">Per monitoraggio continuo dei parametri e alert predittivi sul telefono, installa l'app companion.</p>
+                <a id="downloadAppBtn" class="btn btn-primary" href="https://github.com/gcasaldi/epilepsy-wearable-seizure/tree/main/wear-app" target="_blank" rel="noopener noreferrer">
+                    Scarica / Apri progetto app
+                </a>
             </div>
 
             <!-- Data Input Form (simula dati da wearable) -->
@@ -119,6 +117,7 @@
         </div>
     </div>
 
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="app.js"></script>
 </body>
 </html>

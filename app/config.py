@@ -15,14 +15,22 @@ class Settings(BaseSettings):
     # Security - JWT
     secret_key: str = "CHANGE-THIS-SECRET-KEY-IN-PRODUCTION-USE-LONG-RANDOM-STRING"
     algorithm: str = "HS256"
-    access_token_expire_minutes: int = 1440  # 24 ore
+    access_token_expire_minutes: int = 60
     
     # Admin credentials (hashed password)
     admin_username: str = "admin"
     admin_password_hash: str = ""  # Generato al primo avvio
+
+    # Google OAuth
+    google_client_id: str = ""
     
-    # CORS
-    cors_origins: list = ["*"]  # In produzione: ["https://tuodominio.com"]
+    # Network Security
+    cors_origins: list[str] = ["http://localhost:8000"]
+    trusted_hosts: list[str] = ["localhost", "127.0.0.1"]
+
+    # Auth hardening
+    auth_rate_limit_window_seconds: int = 300
+    auth_rate_limit_max_attempts: int = 10
     
     # Thresholds rischio
     low_risk_threshold: float = 0.33

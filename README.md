@@ -1,16 +1,22 @@
 # Epilepsy Wearable Seizure Prediction
 
-🧠 **Sistema di predizione crisi epilettiche in tempo reale** con autenticazione JWT e dashboard web.
+🧠 **Sistema di predizione crisi epilettiche in tempo reale** con accesso Google privato, dashboard web e monitoraggio Wear OS.
 
 ## 🎯 Funzionalità
 
-- ✅ **Autenticazione sicura** con JWT tokens
+- ✅ **Accesso privato con Google Sign-In** + JWT applicativo
 - ✅ **API protetta** - tutti gli endpoint richiedono login
 - ✅ **Dashboard web** con visualizzazione rischio in tempo reale
 - ✅ **Algoritmo predittivo** basato su parametri fisiologici
+- ✅ **Telemetria estesa da wearable** (HR, HRV, SpO₂, respirazione, temperatura, passi, stress)
 - ✅ **Codifica a colori** (verde/giallo/rosso) per rischio
 - ✅ **Invio automatico** opzionale ogni 5 secondi
 - ✅ **Password hashate** con bcrypt (mai salvate in chiaro)
+
+## 🧭 Architettura ruoli/consensi
+
+- Specifica tecnica pronta sviluppo: [docs/architecture-rbac-consent.md](docs/architecture-rbac-consent.md)
+- Sicurezza account/recovery/audit: [docs/security-account-lifecycle.md](docs/security-account-lifecycle.md)
 
 ## 📋 Prerequisiti
 
@@ -32,7 +38,7 @@ cd epilepsy-wearable-seizure
 pip install -r requirements.txt
 ```
 
-### 3. Configura password admin
+### 3. Configura Google + sicurezza backend
 
 Genera l'hash della password:
 
@@ -46,7 +52,7 @@ Crea il file `.env` nella root del progetto:
 cp .env.example .env
 ```
 
-Modifica `.env` e inserisci l'hash generato:
+Modifica `.env` e inserisci hash + Google Client ID:
 
 ```env
 SECRET_KEY=your-super-secret-key-change-in-production-min-32-chars
@@ -55,9 +61,12 @@ ACCESS_TOKEN_EXPIRE_MINUTES=1440
 
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD_HASH=<hash-generato-sopra>
+GOOGLE_CLIENT_ID=<client-id-google-web-apps.googleusercontent.com>
 
 DEBUG=True
 ```
+
+Per creare il `GOOGLE_CLIENT_ID` usa Google Cloud Console → OAuth 2.0 Client ID (tipo Web Application), aggiungendo l'origine locale (es. `http://localhost:8000`).
 
 ### 4. Avvia il server
 
@@ -78,17 +87,27 @@ Il server sarà disponibile su: **http://localhost:8000**
 ### Frontend Web
 
 1. Apri il browser su: **http://localhost:8000/static/index.html**
-2. Login con:
-   - **Username**: `admin`
-   - **Password**: `EpilepSy2025!Secure`
+2. Accedi con **Google** (nessun form locale)
 3. Inserisci i parametri fisiologici o attiva l'invio automatico
-4. Visualizza il rischio in tempo reale
+4. Visualizza il rischio in tempo reale e usa il link per aprire/scaricare l'app Wear
 
 ### API Endpoints
 
 #### 🔓 Pubblici (no auth)
 
+**GET `/auth/google-config`** - Config pubblica per Google Sign-In frontend
+
+**POST `/auth/google`** - Login con Google ID token
+
+```bash
+curl -X POST http://localhost:8000/auth/google \
+  -H "Content-Type: application/json" \
+  -d '{"credential":"GOOGLE_ID_TOKEN"}'
+```
+
 **POST `/auth/login`** - Ottieni JWT token
+
+> Endpoint legacy mantenuto per test/sviluppo.
 
 ```bash
 curl -X POST http://localhost:8000/auth/login \
@@ -155,6 +174,13 @@ curl http://localhost:8000/api/test \
 | **Movement** | 0+ | Livello attività | 80-180 |
 | **Sleep Hours** | 0-24 h | Ore sonno (24h) | 7-9 |
 | **Medication** | true/false | Farmaci assunti | true |
+| **SpO₂** | 50-100 % | Saturazione ossigeno | 95-100 |
+| **Respiratory Rate** | 1-80 rpm | Frequenza respiratoria | 12-20 |
+| **Skin Temperature** | 30-45 °C | Temperatura cutanea | 35-37.5 |
+| **Steps** | 0+ | Passi giornalieri | variabile |
+| **Stress Index** | 0-1 | Stress normalizzato | < 0.4 |
+| **Calories Burned** | 0+ kcal | Calorie consumate | variabile |
+| **Fall Detected** | true/false | Evento caduta | false |
 
 ## 🎨 Livelli di Rischio
 

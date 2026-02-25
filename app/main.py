@@ -4,16 +4,26 @@ Con autenticazione JWT per proteggere gli endpoint
 """
 from datetime import datetime, timedelta
 import logging
+import time
+from collections import defaultdict, deque
+from typing import Deque, Dict
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.models import (
-    LoginRequest, TokenResponse, PhysiologicalData, 
+    LoginRequest, GoogleLoginRequest, TokenResponse, PhysiologicalData,
     RiskPrediction, HealthStatus
 )
-from app.auth import authenticate_user, create_access_token, get_current_user, get_password_hash
+from app.auth import (
+    authenticate_user,
+    create_access_token,
+    get_current_user,
+    get_password_hash,
+    verify_google_id_token,
+)
 from app.predictor import predictor
 from app.config import settings
 
@@ -33,6 +43,41 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+
+class AuthRateLimiter:
+    """Rate limiter in-memory per endpoint/IP per mitigare brute force sugli endpoint auth."""
+
+    def __init__(self, window_seconds: int, max_attempts: int):
+        self.window_seconds = window_seconds
+        self.max_attempts = max_attempts
+        self.attempts: Dict[str, Deque[float]] = defaultdict(deque)
+
+    def _clean(self, key: str, now: float):
+        cutoff = now - self.window_seconds
+        records = self.attempts[key]
+        while records and records[0] < cutoff:
+            records.popleft()
+
+    def check(self, key: str):
+        now = time.time()
+        self._clean(key, now)
+        if len(self.attempts[key]) >= self.max_attempts:
+            raise HTTPException(
+                status_code=429,
+                detail="Troppi tentativi di autenticazione. Riprova più tardi."
+            )
+
+    def register(self, key: str):
+        now = time.time()
+        self._clean(key, now)
+        self.attempts[key].append(now)
+
+
+auth_rate_limiter = AuthRateLimiter(
+    window_seconds=settings.auth_rate_limit_window_seconds,
+    max_attempts=settings.auth_rate_limit_max_attempts,
+)
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
@@ -41,6 +86,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=settings.trusted_hosts,
+)
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    if request.url.path.startswith("/auth") or request.url.path.startswith("/api"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 # Serve frontend statico
 try:
@@ -86,6 +148,7 @@ async def root():
         "status": "online",
         "authentication": "JWT Bearer Token required",
         "endpoints": {
+            "google_login": "POST /auth/google",
             "login": "POST /auth/login",
             "health": "GET /health",
             "predict": "POST /api/predict (protected)",
@@ -111,7 +174,7 @@ async def health_check():
     tags=["Authentication"],
     summary="Login e ottenimento JWT token"
 )
-async def login(credentials: LoginRequest):
+async def login(credentials: LoginRequest, http_request: Request):
     """
     Autentica l'utente e restituisce un JWT token.
     
@@ -120,12 +183,16 @@ async def login(credentials: LoginRequest):
     Authorization: Bearer <token>
     ```
     """
+    ip = http_request.client.host if http_request.client else "unknown"
+    limiter_key = f"login:{ip}"
+    auth_rate_limiter.check(limiter_key)
     logger.info(f"Tentativo di login per utente: {credentials.username}")
     
     # Autentica
     username = authenticate_user(credentials.username, credentials.password)
     
     if not username:
+        auth_rate_limiter.register(limiter_key)
         logger.warning(f"Login fallito per: {credentials.username}")
         raise HTTPException(
             status_code=401,
@@ -141,6 +208,48 @@ async def login(credentials: LoginRequest):
     
     logger.info(f"Login riuscito per: {username}")
     
+    return TokenResponse(
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=settings.access_token_expire_minutes * 60,
+        username=username
+    )
+
+
+@app.get("/auth/google-config", tags=["Authentication"], summary="Config Google Sign-In")
+async def google_config():
+    """Restituisce la configurazione pubblica per Google Sign-In frontend."""
+    return {
+        "google_client_id": settings.google_client_id,
+        "enabled": bool(settings.google_client_id)
+    }
+
+
+@app.post(
+    "/auth/google",
+    response_model=TokenResponse,
+    tags=["Authentication"],
+    summary="Login con Google ID token"
+)
+async def google_login(payload: GoogleLoginRequest, http_request: Request):
+    """Verifica token Google e restituisce JWT applicativo."""
+    ip = http_request.client.host if http_request.client else "unknown"
+    limiter_key = f"google_login:{ip}"
+    auth_rate_limiter.check(limiter_key)
+
+    username = verify_google_id_token(payload.credential)
+    if not username:
+        auth_rate_limiter.register(limiter_key)
+        raise HTTPException(status_code=401, detail="Token Google non valido")
+
+    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
+    access_token = create_access_token(
+        data={"sub": username},
+        expires_delta=access_token_expires
+    )
+
+    logger.info(f"Login Google riuscito per: {username}")
+
     return TokenResponse(
         access_token=access_token,
         token_type="bearer",

@@ -26,7 +26,14 @@ data class PhysiologicalData(
     val heart_rate: Int,
     val movement: Float,
     val sleep_hours: Float,
-    val medication_taken: Boolean
+    val medication_taken: Boolean,
+    val spo2: Float? = null,
+    val respiratory_rate: Float? = null,
+    val skin_temperature: Float? = null,
+    val steps: Int? = null,
+    val stress_index: Float? = null,
+    val calories_burned: Float? = null,
+    val fall_detected: Boolean? = null
 )
 data class PredictionResponse(
     val risk_score: Float,

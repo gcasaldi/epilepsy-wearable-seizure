@@ -2,6 +2,7 @@
 Sistema di autenticazione con JWT
 """
 from datetime import datetime, timedelta
+import importlib
 from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -78,6 +79,37 @@ def authenticate_user(username: str, password: str) -> Optional[str]:
     return username
 
 
+def verify_google_id_token(token: str) -> Optional[str]:
+    """
+    Verifica un Google ID token e restituisce l'identificativo utente.
+
+    Returns:
+        Email utente se disponibile, altrimenti subject (sub), None se non valido.
+    """
+    if not settings.google_client_id:
+        raise HTTPException(
+            status_code=500,
+            detail="Google OAuth non configurato. Imposta GOOGLE_CLIENT_ID nel file .env"
+        )
+
+    try:
+        google_id_token = importlib.import_module("google.oauth2.id_token")
+        google_requests = importlib.import_module("google.auth.transport.requests")
+
+        id_info = google_id_token.verify_oauth2_token(
+            token,
+            google_requests.Request(),
+            settings.google_client_id
+        )
+    except (ValueError, ModuleNotFoundError):
+        return None
+
+    email = id_info.get("email")
+    subject = id_info.get("sub")
+
+    return email or subject
+
+
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
     """
     Dependency per proteggere gli endpoint - valida JWT token
@@ -100,7 +132,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     try:
         token = credentials.credentials
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-        username: str = payload.get("sub")
+        username: Optional[str] = payload.get("sub")
         
         if username is None:
             raise credentials_exception

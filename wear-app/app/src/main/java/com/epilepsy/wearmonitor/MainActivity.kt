@@ -105,6 +105,18 @@ fun MonitoringScreen(viewModel: MonitorViewModel, uiState: MonitorViewModel.UiSt
         Column(horizontalAlignment = Alignment.Start) {
             Text("❤️ ${uiState.heartRate} bpm", style = MaterialTheme.typography.caption2)
             Text("📊 HRV: ${uiState.hrv} ms", style = MaterialTheme.typography.caption2)
+            Text("🫁 SpO₂: ${uiState.spo2?.let { "%.1f".format(it) } ?: "--"}%", style = MaterialTheme.typography.caption2)
+            Text("👣 Steps: ${uiState.steps ?: 0}", style = MaterialTheme.typography.caption2)
+        }
+
+        if (uiState.lastError != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "⚠ ${uiState.lastError}",
+                style = MaterialTheme.typography.caption2,
+                textAlign = TextAlign.Center,
+                color = androidx.compose.ui.graphics.Color.Red
+            )
         }
         
         Spacer(modifier = Modifier.height(16.dp))

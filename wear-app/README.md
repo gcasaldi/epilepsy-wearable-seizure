@@ -1,16 +1,18 @@
 # Epilepsy Wear OS App
 
-App nativa Android per smartwatch Wear OS che monitora parametri fisiologici e prevede il rischio di crisi epilettiche.
+App nativa Android per smartwatch Wear OS che monitora parametri fisiologici, prevede il rischio di crisi e invia telemetria/alert al telefono associato.
 
 ## 🎯 Funzionalità
 
 - ✅ Lettura sensori in tempo reale (HRV, battito cardiaco)
+- ✅ Telemetria estesa (SpO₂, respirazione, temperatura, passi, stress, calorie, caduta)
 - ✅ Login automatico con credenziali salvate
 - ✅ Invio dati al backend FastAPI
+- ✅ Invio dati watch → telefono con Wearable Data Layer
 - ✅ Visualizzazione rischio con colori (verde/giallo/rosso)
 - ✅ UI ottimizzata per schermi circolari
 - ✅ Monitoraggio continuo in background
-- ✅ Alert vibrante per rischio alto
+- ✅ Alert vibrante su watch + messaggio alert verso telefono
 
 ## 📋 Prerequisiti
 
@@ -87,6 +89,12 @@ File → Invalidate Caches → Invalidate and Restart
 1. Implementa `PassiveListenerService` completo
 2. Richiedi permessi runtime
 3. Gestisci casi in cui Health Services non è disponibile
+
+⚠️ **Alert sul telefono**: l'app watch invia messaggi Data Layer con path:
+- `/epilepsy/telemetry`
+- `/epilepsy/alert`
+
+Per notifiche visibili sul telefono serve una companion app Android che ascolti questi path e mostri la notifica locale.
 
 ⚠️ **Credenziali**: Cambia username/password hardcoded in produzione
 
