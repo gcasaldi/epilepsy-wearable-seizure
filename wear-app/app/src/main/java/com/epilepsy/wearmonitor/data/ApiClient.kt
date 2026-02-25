@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.epilepsy.wearmonitor.BuildConfig
 import com.google.gson.Gson
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -54,8 +55,9 @@ interface EpilepsyApi {
 }
 
 class ApiClient {
-    // IMPORTANTE: Cambia questo con l'indirizzo del tuo server
-    private val BASE_URL = "http://YOUR_SERVER_IP:8000/"
+    private val baseUrl = BuildConfig.API_BASE_URL.let {
+        if (it.endsWith('/')) it else "$it/"
+    }
     
     private val TOKEN_KEY = stringPreferencesKey("auth_token")
     
@@ -66,7 +68,7 @@ class ApiClient {
         .build()
     
     private val retrofit = Retrofit.Builder()
-        .baseUrl(BASE_URL)
+        .baseUrl(baseUrl)
         .client(client)
         .addConverterFactory(GsonConverterFactory.create())
         .build()

@@ -30,17 +30,21 @@
     <section class="grid-2">
       <article class="card">
         <h3>Download</h3>
-        <p class="muted">Scegli il tuo store.</p>
+        <p class="muted">Scegli il tuo store oppure installa subito l'APK locale.</p>
         <div class="hero-actions">
-          <a href="https://apps.apple.com/" class="btn btn-outline" target="_blank" rel="noopener noreferrer">App Store</a>
-          <a href="https://play.google.com/store" class="btn btn-outline" target="_blank" rel="noopener noreferrer">Google Play</a>
-          <a id="smartStoreLink" href="https://play.google.com/store" class="btn btn-primary">Apri store consigliato</a>
+          <a id="iosStoreLink" href="https://apps.apple.com/" class="btn btn-outline" target="_blank" rel="noopener noreferrer">App Store</a>
+          <a id="androidStoreLink" href="https://play.google.com/store/apps/details?id=com.epilepsy.wearmonitor" class="btn btn-outline" target="_blank" rel="noopener noreferrer">Google Play</a>
+          <a id="smartStoreLink" href="https://play.google.com/store/apps/details?id=com.epilepsy.wearmonitor" class="btn btn-primary">Apri store consigliato</a>
+          <a id="playSearchLink" href="https://play.google.com/store/search?q=epilepsy%20wear%20monitor&c=apps" class="btn btn-outline" target="_blank" rel="noopener noreferrer">Cerca su Play Store</a>
+          <a id="apkDownloadLink" href="/app/apk" class="btn btn-primary">Scarica APK locale</a>
         </div>
+        <p class="muted" style="margin-top:10px;">Se la scheda Play non è ancora visibile, usa la ricerca diretta.</p>
       </article>
       <article class="card">
-        <h3>QR code</h3>
-        <div class="qr">QR APP</div>
-        <p class="muted" style="margin-top:10px;">Scansiona per download rapido.</p>
+        <h3>QR code APK locale</h3>
+        <img id="appQrImage" class="qr-image" alt="QR code download app">
+        <p class="muted" style="margin-top:10px;">Scansiona per download rapido dell'APK da questo server.</p>
+        <p id="apkQrHint" class="muted" style="margin-top:8px;"></p>
       </article>
     </section>
 

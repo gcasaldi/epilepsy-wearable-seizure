@@ -275,6 +275,15 @@ a { color: inherit; text-decoration: none; }
     font-weight: 700;
 }
 
+.qr-image {
+    width: 160px;
+    height: 160px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    object-fit: cover;
+}
+
 .hidden { display: none !important; }
 
 @media (max-width: 900px) {

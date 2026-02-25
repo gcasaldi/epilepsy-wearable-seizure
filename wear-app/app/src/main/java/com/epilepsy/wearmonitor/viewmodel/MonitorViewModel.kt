@@ -26,6 +26,12 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
 
     private var lastHighRiskAlertAt = 0L
 
+    private data class LocalPrediction(
+        val riskScore: Float,
+        val riskLevel: String,
+        val message: String
+    )
+
     data class UiState(
         val isLoggedIn: Boolean = false,
         val isMonitoring: Boolean = false,
@@ -59,8 +65,13 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
     fun login() {
         viewModelScope.launch {
             try {
+                val context = getApplication<Application>()
                 val success = apiClient.login(
-                    getApplication(),
+                    context,
+                    "demo.user@epilepsy.local",
+                    "DemoUser2026!"
+                ) || apiClient.login(
+                    context,
                     "admin",
                     "EpilepSy2025!Secure"
                 )
@@ -107,56 +118,106 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
 
     private fun sendPrediction(snapshot: TelemetrySnapshot) {
         viewModelScope.launch {
-            try {
-                val data = PhysiologicalData(
-                    hrv = snapshot.hrv,
-                    heart_rate = snapshot.heartRate,
-                    movement = snapshot.movement,
-                    sleep_hours = snapshot.sleepHours,
-                    medication_taken = snapshot.medicationTaken,
-                    spo2 = snapshot.spo2,
-                    respiratory_rate = snapshot.respiratoryRate,
-                    skin_temperature = snapshot.skinTemperature,
-                    steps = snapshot.steps,
-                    stress_index = snapshot.stressIndex,
-                    calories_burned = snapshot.caloriesBurned,
-                    fall_detected = snapshot.fallDetected
+            val data = PhysiologicalData(
+                hrv = snapshot.hrv,
+                heart_rate = snapshot.heartRate,
+                movement = snapshot.movement,
+                sleep_hours = snapshot.sleepHours,
+                medication_taken = snapshot.medicationTaken,
+                spo2 = snapshot.spo2,
+                respiratory_rate = snapshot.respiratoryRate,
+                skin_temperature = snapshot.skinTemperature,
+                steps = snapshot.steps,
+                stress_index = snapshot.stressIndex,
+                calories_burned = snapshot.caloriesBurned,
+                fall_detected = snapshot.fallDetected
+            )
+
+            val remotePrediction = runCatching {
+                apiClient.predict(getApplication(), data)
+            }.getOrNull()
+
+            val effectivePrediction = if (remotePrediction != null) {
+                LocalPrediction(
+                    riskScore = remotePrediction.risk_score,
+                    riskLevel = remotePrediction.risk_level,
+                    message = remotePrediction.message
                 )
-
-                val prediction = apiClient.predict(getApplication(), data)
-
-                _uiState.value = _uiState.value.copy(
-                    riskScore = prediction.risk_score,
-                    riskLevel = prediction.risk_level,
-                    message = prediction.message,
-                    lastError = null
+            } else {
+                val localPrediction = computeLocalPrediction(snapshot)
+                localPrediction.copy(
+                    message = "${localPrediction.message} (fallback locale)"
                 )
+            }
 
+            _uiState.value = _uiState.value.copy(
+                riskScore = effectivePrediction.riskScore,
+                riskLevel = effectivePrediction.riskLevel,
+                message = effectivePrediction.message,
+                lastError = if (remotePrediction == null) "Backend non raggiungibile: uso stima locale" else null
+            )
+
+            runCatching {
                 phoneBridge.sendTelemetry(
                     snapshot = snapshot,
-                    riskLevel = prediction.risk_level,
-                    riskScore = prediction.risk_score
+                    riskLevel = effectivePrediction.riskLevel,
+                    riskScore = effectivePrediction.riskScore
                 )
+            }
 
-                val now = System.currentTimeMillis()
-                val isHighRisk = prediction.risk_level == "high"
-                val canAlert = now - lastHighRiskAlertAt > 60_000
+            val now = System.currentTimeMillis()
+            val isHighRisk = effectivePrediction.riskLevel == "high"
+            val canAlert = now - lastHighRiskAlertAt > 60_000
 
-                if (isHighRisk && canAlert) {
-                    lastHighRiskAlertAt = now
-                    alertManager.triggerHighRiskAlert()
+            if (isHighRisk && canAlert) {
+                lastHighRiskAlertAt = now
+                alertManager.triggerHighRiskAlert()
+                runCatching {
                     phoneBridge.sendAlert(
                         title = "Rischio crisi elevato",
-                        message = prediction.message,
-                        riskLevel = prediction.risk_level,
-                        riskScore = prediction.risk_score
+                        message = effectivePrediction.message,
+                        riskLevel = effectivePrediction.riskLevel,
+                        riskScore = effectivePrediction.riskScore
                     )
                 }
-
-            } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(lastError = e.message ?: "Errore monitoraggio")
             }
         }
+    }
+
+    private fun computeLocalPrediction(snapshot: TelemetrySnapshot): LocalPrediction {
+        val hrvRisk = ((70f - snapshot.hrv) / 70f).coerceIn(0f, 1f)
+        val heartRateRisk = ((snapshot.heartRate - 85f) / 65f).coerceIn(0f, 1f)
+        val movementRisk = ((snapshot.movement - 180f) / 220f).coerceIn(0f, 1f)
+        val sleepRisk = ((7.5f - snapshot.sleepHours) / 7.5f).coerceIn(0f, 1f)
+        val medicationRisk = if (snapshot.medicationTaken) 0f else 1f
+        val spo2Risk = snapshot.spo2?.let { ((95f - it) / 45f).coerceIn(0f, 1f) } ?: 0f
+        val stressRisk = (snapshot.stressIndex ?: 0f).coerceIn(0f, 1f)
+        val fallRisk = if (snapshot.fallDetected) 1f else 0f
+
+        val score = (
+            (0.22f * hrvRisk) +
+            (0.18f * heartRateRisk) +
+            (0.12f * movementRisk) +
+            (0.18f * sleepRisk) +
+            (0.12f * medicationRisk) +
+            (0.08f * spo2Risk) +
+            (0.05f * stressRisk) +
+            (0.05f * fallRisk)
+        ).coerceIn(0f, 1f)
+
+        val level = when {
+            score >= 0.67f -> "high"
+            score >= 0.34f -> "medium"
+            else -> "low"
+        }
+
+        val message = when (level) {
+            "high" -> "Rischio elevato: attiva il piano di sicurezza"
+            "medium" -> "Rischio moderato: resta monitorato"
+            else -> "Rischio basso: parametri stabili"
+        }
+
+        return LocalPrediction(score, level, message)
     }
 
     override fun onCleared() {

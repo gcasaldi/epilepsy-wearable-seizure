@@ -91,10 +91,30 @@ auth_rate_limiter = AuthRateLimiter(
 
 init_security_db()
 FRONTEND_DIR = Path("frontend")
+WEAR_APP_DIR = Path("wear-app")
 
 
 def frontend_page(filename: str) -> FileResponse:
     return FileResponse(FRONTEND_DIR / filename)
+
+
+def resolve_wear_apk() -> Path | None:
+    candidate_paths = [
+        WEAR_APP_DIR / "app" / "build" / "outputs" / "apk" / "release" / "app-release.apk",
+        WEAR_APP_DIR / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk",
+    ]
+
+    for candidate in candidate_paths:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+
+    apk_files = sorted(
+        (WEAR_APP_DIR / "app" / "build" / "outputs" / "apk").glob("**/*.apk"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    ) if (WEAR_APP_DIR / "app" / "build" / "outputs" / "apk").exists() else []
+
+    return apk_files[0] if apk_files else None
 
 # CORS
 app.add_middleware(
@@ -176,6 +196,22 @@ async def provider_login_page():
 @app.get("/app", include_in_schema=False)
 async def app_download_page():
     return frontend_page("app-download.html")
+
+
+@app.get("/app/apk", include_in_schema=False)
+async def app_download_apk():
+    apk_path = resolve_wear_apk()
+    if not apk_path:
+        raise HTTPException(
+            status_code=404,
+            detail="APK non trovato. Compila prima il progetto Wear OS (debug o release)."
+        )
+
+    return FileResponse(
+        apk_path,
+        media_type="application/vnd.android.package-archive",
+        filename=apk_path.name,
+    )
 
 
 @app.get("/dashboard", include_in_schema=False)

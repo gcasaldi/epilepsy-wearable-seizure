@@ -4,6 +4,8 @@ plugins {
 }
 
 android {
+    val apiBaseUrl = (project.findProperty("API_BASE_URL") as String?) ?: "http://10.0.2.2:8000/"
+
     namespace = "com.epilepsy.wearmonitor"
     compileSdk = 34
 
@@ -13,6 +15,7 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+        buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         
         vectorDrawables {
             useSupportLibrary = true
@@ -40,6 +43,7 @@ android {
     
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     
     composeOptions {

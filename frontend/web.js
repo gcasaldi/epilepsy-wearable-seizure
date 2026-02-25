@@ -88,14 +88,20 @@ async function initGoogleButton(targetId, onCredential) {
 
     const config = await fetch(`${API_BASE}/auth/google-config`).then((r) => r.json());
     if (!config.enabled || !config.google_client_id) {
-        return;
+        throw new Error('Google Sign-In non configurato: imposta GOOGLE_CLIENT_ID nel backend (.env) e riavvia il server.');
     }
 
-    const waitGoogle = () => new Promise((resolve) => {
+    const waitGoogle = () => new Promise((resolve, reject) => {
+        let attempts = 0;
         const check = () => {
             if (window.google && window.google.accounts && window.google.accounts.id) {
                 resolve();
             } else {
+                attempts += 1;
+                if (attempts > 40) {
+                    reject(new Error('SDK Google non disponibile: verifica connessione internet o blocchi di rete.'));
+                    return;
+                }
                 setTimeout(check, 250);
             }
         };
@@ -166,11 +172,24 @@ function isMobileBrowser() {
     return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
+const IOS_STORE_URL = 'https://apps.apple.com/';
+const ANDROID_STORE_URL = 'https://play.google.com/store/apps/details?id=com.epilepsy.wearmonitor';
+const ANDROID_SEARCH_URL = 'https://play.google.com/store/search?q=epilepsy%20wear%20monitor&c=apps';
+const LOCAL_APK_PATH = '/app/apk';
+
+function qrImageUrl(targetUrl) {
+    return `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(targetUrl)}`;
+}
+
+function localApkUrl() {
+    return `${window.location.origin}${LOCAL_APK_PATH}`;
+}
+
 function appStoreUrl() {
     if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-        return 'https://apps.apple.com/';
+        return IOS_STORE_URL;
     }
-    return 'https://play.google.com/store';
+    return ANDROID_STORE_URL;
 }
 
 async function boot() {
@@ -181,27 +200,35 @@ async function boot() {
 
     if (page === 'login') {
         const error = document.getElementById('loginError');
-        await initGoogleButton('googlePatientButton', async (response) => {
-            try {
-                await loginWithGoogle(response.credential);
-                window.location.href = '/dashboard';
-            } catch (err) {
-                showError(error, err.message);
-            }
-        });
+        try {
+            await initGoogleButton('googlePatientButton', async (response) => {
+                try {
+                    await loginWithGoogle(response.credential);
+                    window.location.href = '/dashboard';
+                } catch (err) {
+                    showError(error, err.message);
+                }
+            });
+        } catch (err) {
+            showError(error, err.message || 'Google Sign-In non disponibile');
+        }
     }
 
     if (page === 'login-provider') {
         const error = document.getElementById('providerLoginError');
-        await initGoogleButton('googleProviderButton', async (response) => {
-            try {
-                await loginWithGoogle(response.credential);
-                const status = await api('/api/provider/status');
-                window.location.href = status.verified ? '/provider/dashboard' : '/provider';
-            } catch (err) {
-                showError(error, err.message);
-            }
-        });
+        try {
+            await initGoogleButton('googleProviderButton', async (response) => {
+                try {
+                    await loginWithGoogle(response.credential);
+                    const status = await api('/api/provider/status');
+                    window.location.href = status.verified ? '/provider/dashboard' : '/provider';
+                } catch (err) {
+                    showError(error, err.message);
+                }
+            });
+        } catch (err) {
+            showError(error, err.message || 'Google Sign-In non disponibile');
+        }
 
         const form = document.getElementById('providerLocalLoginForm');
         if (form) {
@@ -227,10 +254,41 @@ async function boot() {
     }
 
     if (page === 'app-download') {
+        const iosStoreLink = document.getElementById('iosStoreLink');
+        if (iosStoreLink) {
+            iosStoreLink.href = IOS_STORE_URL;
+        }
+
+        const androidStoreLink = document.getElementById('androidStoreLink');
+        if (androidStoreLink) {
+            androidStoreLink.href = ANDROID_STORE_URL;
+        }
+
+        const playSearchLink = document.getElementById('playSearchLink');
+        if (playSearchLink) {
+            playSearchLink.href = ANDROID_SEARCH_URL;
+        }
+
+        const apkDownloadLink = document.getElementById('apkDownloadLink');
+        if (apkDownloadLink) {
+            apkDownloadLink.href = LOCAL_APK_PATH;
+        }
+
         const storeLink = document.getElementById('smartStoreLink');
         if (storeLink) {
             storeLink.href = appStoreUrl();
         }
+
+        const qrImage = document.getElementById('appQrImage');
+        if (qrImage) {
+            qrImage.src = qrImageUrl(localApkUrl());
+        }
+
+        const apkQrHint = document.getElementById('apkQrHint');
+        if (apkQrHint && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+            apkQrHint.textContent = 'Per scansione da telefono usa l\'IP LAN del PC (es. http://192.168.x.x:8000/app).';
+        }
+
         if (isMobileBrowser()) {
             const mobileNotice = document.getElementById('mobileRedirectNotice');
             if (mobileNotice) mobileNotice.classList.remove('hidden');
