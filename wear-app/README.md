@@ -31,14 +31,16 @@ App nativa Android per smartwatch Wear OS che monitora parametri fisiologici, pr
 
 ### 2. Configura l'indirizzo del server
 
-Modifica `ApiClient.kt` (linea 52):
+Il client Wear legge `API_BASE_URL` da Gradle (default: `http://10.0.2.2:8000/`).
 
-```kotlin
-private val BASE_URL = "http://YOUR_SERVER_IP:8000/"
+Esempio build con server LAN:
+
+```bash
+./gradlew :app:assembleDebug -PAPI_BASE_URL=http://192.168.1.100:8000/
 ```
 
-**Se testi con emulatore:** usa `http://10.0.2.2:8000/`
-**Se testi con watch fisico:** usa l'IP della tua macchina (es. `http://192.168.1.100:8000/`)
+**Se testi con emulatore:** `http://10.0.2.2:8000/`
+**Se testi con watch fisico:** IP LAN della macchina (es. `http://192.168.1.100:8000/`)
 
 ### 3. Sincronizza Gradle
 
@@ -67,6 +69,16 @@ Clicca sul pulsante ▶️ Run in Android Studio
 5. **Stop**: Ferma il monitoraggio
 
 ## 🔧 Troubleshooting
+
+### APK locale per installazione rapida
+
+Dopo una build (`assembleDebug` o `assembleRelease`) il backend espone automaticamente l'APK su:
+
+```text
+http://<host>:8000/app/apk
+```
+
+La pagina web `http://<host>:8000/app` mostra pulsante **Scarica APK locale** + QR dedicato.
 
 ### "Cannot resolve symbol" errors
 ```bash

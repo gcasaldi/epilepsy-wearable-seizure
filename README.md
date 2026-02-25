@@ -92,6 +92,17 @@ Il server sarà disponibile su: **http://localhost:8000**
 3. Inserisci i parametri fisiologici o attiva l'invio automatico
 4. Visualizza il rischio in tempo reale e usa il link per aprire/scaricare l'app Wear
 
+### Download APK locale (senza Play Store)
+
+- Pagina: **http://localhost:8000/app**
+- Endpoint APK: **http://localhost:8000/app/apk**
+- Se ricevi `404 APK non trovato`, compila prima la Wear app (`assembleDebug` o `assembleRelease`).
+
+### Google Sign-In disabilitato
+
+Se in `GET /auth/google-config` vedi `"enabled": false`, manca `GOOGLE_CLIENT_ID` nel file `.env`.
+Imposta un Client ID OAuth Web valido e riavvia il backend.
+
 ### Credenziali demo (sviluppo)
 
 - Utente personale: `demo.user@epilepsy.local` / `DemoUser2026!`

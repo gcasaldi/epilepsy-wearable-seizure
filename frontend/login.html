@@ -30,6 +30,18 @@
         <h3>Paziente / Caregiver</h3>
         <p class="muted">Uso personale</p>
         <div id="googlePatientButton" class="google-box"></div>
+        <div id="patientLocalLoginWrap" class="hidden" style="margin-top:12px;">
+          <p class="muted" style="margin-bottom:8px;">Fallback locale (sviluppo)</p>
+          <form id="patientLocalLoginForm">
+            <label>Email
+              <input id="patientUsername" class="input" type="text" value="demo.user@epilepsy.local" required>
+            </label>
+            <label>Password
+              <input id="patientPassword" class="input" type="password" value="DemoUser2026!" required>
+            </label>
+            <button type="submit" class="btn btn-outline" style="margin-top:10px;">Accedi locale</button>
+          </form>
+        </div>
       </article>
       <article class="card">
         <h3>Ente sanitario</h3>
