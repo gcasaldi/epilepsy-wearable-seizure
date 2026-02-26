@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<!-- This is the main application page, accessible after login -->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Telemetry</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div id="app-container" style="display: none;"> <!-- Hidden by default -->
+        <div class="container">
+            <header>
+                <h1 data-i18n="title">Live Patient Telemetry</h1>
+                <div class="top-controls">
+                    <div class="connection-status">
+                        <span data-i18n="status">Status:</span>
+                        <span id="status-indicator" class="disconnected"></span>
+                        <span id="status-text" data-i18n="disconnected">Disconnected</span>
+                    </div>
+                    <div class="lang-selector">
+                        <label for="language-select" data-i18n="language">Language:</label>
+                        <select id="language-select">
+                            <option value="en">English</option>
+                            <option value="it">Italiano</option>
+                        </select>
+                    </div>
+                    <button id="logout-button" data-i18n="logout">Logout</button>
+                </div>
+            </header>
+
+            <main>
+                 <div class="chart-container">
+                    <canvas id="telemetryChart"></canvas>
+                </div>
+                 <div class="controls">
+                     <button id="connect-button" data-i18n="connect">Connect to Device</button>
+                </div>
+
+                <div class="insights-container">
+                    <aside class="ai-assistant">
+                        <h2 data-i18n="ai_assistant_title">AI Assistant</h2>
+                        <div id="ai-insights">
+                            <p data-i18n="ai_initial_message">Connect to a device to start receiving personalized insights.</p>
+                        </div>
+                    </aside>
+                    <aside class="therapy-section">
+                        <h2 data-i18n="therapy_title">My Therapy</h2>
+                        <form id="therapy-form">
+                            <input type="text" id="medication-name" placeholder="Medication name..." required>
+                            <button type="submit" data-i18n="add_med">Add</button>
+                        </form>
+                        <ul id="medication-list"></ul>
+                    </aside>
+                </div>
+            </main>
+        </div>
+    </div>
+    
+    <script>
+        // This script ensures that only authenticated users can see the app
+        if (sessionStorage.getItem('userIsAuthenticated') === 'true') {
+            document.getElementById('app-container').style.display = 'block';
+        } else {
+            window.location.href = 'index.html'; // Redirect to login if not authenticated
+        }
+    </script>
+    <script src="main.js"></script>
+</body>
+</html>
