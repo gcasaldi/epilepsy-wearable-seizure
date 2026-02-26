@@ -2,12 +2,11 @@
 FastAPI Application - Epilepsy Seizure Prediction
 Con autenticazione JWT per proteggere gli endpoint
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 import logging
-import time
 from collections import defaultdict, deque
 from pathlib import Path
-from typing import Deque, Dict
+from typing import Deque, Dict, List, Optional
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -16,19 +15,18 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.models import (
-    LoginRequest, GoogleLoginRequest, TokenResponse, AccountDeleteResponse, PhysiologicalData,
-    RiskPrediction, HealthStatus
+    GoogleLoginRequest, TokenResponse, AccountDeleteResponse, PhysiologicalData,
+    RiskPrediction, HealthStatus, TherapyRequest, RiskDataPoint
 )
 from app.auth import (
     create_access_token,
     get_current_user,
-    get_local_account_profile,
     get_password_hash,
     verify_google_id_token,
 )
 from app.predictor import predictor
 from app.config import settings
-from app.security_db import SessionLocal, init_security_db
+from app.security_db import SessionLocal, init_security_db, Therapy
 from app.security_service import (
     ensure_provider_organization_context,
     ensure_user_exists,
@@ -188,11 +186,6 @@ async def login_page():
     return frontend_page("login.html")
 
 
-@app.get("/login/provider", include_in_schema=False)
-async def provider_login_page():
-    return frontend_page("login-provider.html")
-
-
 @app.get("/app", include_in_schema=False)
 async def app_download_page():
     return frontend_page("app-download.html")
@@ -217,6 +210,14 @@ async def app_download_apk():
 @app.get("/dashboard", include_in_schema=False)
 async def patient_dashboard_page():
     return frontend_page("dashboard.html")
+
+@app.get("/dashboard-v2", include_in_schema=False)
+async def patient_dashboard_v2_page():
+    return frontend_page("dashboard-v2.html")
+
+@app.get("/therapy", include_in_schema=False)
+async def therapy_page():
+    return frontend_page("therapy.html")
 
 
 @app.get("/consents", include_in_schema=False)
@@ -282,66 +283,6 @@ async def health_check():
         version=settings.app_version,
         authenticated=False,
         timestamp=datetime.now()
-    )
-
-
-@app.post(
-    "/auth/login",
-    response_model=TokenResponse,
-    tags=["Authentication"],
-    summary="Login e ottenimento JWT token"
-)
-async def login(credentials: LoginRequest, http_request: Request):
-    """
-    Autentica l'utente e restituisce un JWT token.
-    
-    Il token deve essere incluso nell'header Authorization delle richieste protette:
-    ```
-    Authorization: Bearer <token>
-    ```
-    """
-    ip = http_request.client.host if http_request.client else "unknown"
-    limiter_key = f"login:{ip}"
-    auth_rate_limiter.check(limiter_key)
-    logger.info(f"Tentativo di login per utente: {credentials.username}")
-    
-    account_profile = get_local_account_profile(credentials.username, credentials.password)
-    
-    if not account_profile:
-        auth_rate_limiter.register(limiter_key)
-        logger.warning(f"Login fallito per: {credentials.username}")
-        raise HTTPException(
-            status_code=401,
-            detail="Username o password non corretti"
-        )
-    
-    # Crea token
-    db = SessionLocal()
-    try:
-        persisted_user = ensure_user_exists(
-            db,
-            email=account_profile["email"],
-            auth_provider=account_profile["auth_provider"],
-            account_type=account_profile["account_type"],
-            provider_status=account_profile["provider_status"],
-        )
-        ensure_provider_organization_context(db, persisted_user)
-    finally:
-        db.close()
-
-    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
-    access_token = create_access_token(
-        data={"sub": persisted_user.email, "ver": persisted_user.token_version},
-        expires_delta=access_token_expires
-    )
-    
-    logger.info(f"Login riuscito per: {persisted_user.email}")
-    
-    return TokenResponse(
-        access_token=access_token,
-        token_type="bearer",
-        expires_in=settings.access_token_expire_minutes * 60,
-        username=persisted_user.email
     )
 
 
@@ -488,6 +429,51 @@ async def delete_account(current_user: str = Depends(get_current_user)):
     )
 
 
+@app.get("/api/therapies", response_model=List[TherapyRequest], tags=["Therapy"])
+async def get_therapies(current_user: str = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, current_user)
+        therapies = db.query(Therapy).filter(Therapy.user_id == user.id).all()
+        return therapies
+    finally:
+        db.close()
+
+
+@app.post("/api/therapies", response_model=TherapyRequest, tags=["Therapy"])
+async def add_therapy(therapy: TherapyRequest, current_user: str = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, current_user)
+        new_therapy = Therapy(
+            user_id=user.id,
+            medication_name=therapy.medication_name,
+            dosage=therapy.dosage,
+            intake_time=therapy.intake_time
+        )
+        db.add(new_therapy)
+        db.commit()
+        db.refresh(new_therapy)
+        return new_therapy
+    finally:
+        db.close()
+
+
+@app.delete("/api/therapies/{therapy_id}", tags=["Therapy"])
+async def delete_therapy(therapy_id: str, current_user: str = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, current_user)
+        therapy = db.query(Therapy).filter(Therapy.id == therapy_id, Therapy.user_id == user.id).first()
+        if not therapy:
+            raise HTTPException(status_code=404, detail="Terapia non trovata")
+        db.delete(therapy)
+        db.commit()
+        return {"status": "success", "message": "Terapia eliminata"}
+    finally:
+        db.close()
+
+
 @app.post(
     "/api/predict",
     response_model=RiskPrediction,
@@ -555,6 +541,34 @@ async def test_prediction(current_user: str = Depends(get_current_user)):
         "input": test_data.model_dump(),
         "output": prediction.model_dump(),
         "note": "Test con dati di esempio"
+    }
+
+@app.get("/api/risk-history", response_model=List[RiskDataPoint], tags=["Dashboard"])
+async def get_risk_history(current_user: str = Depends(get_current_user)):
+    # Logica di esempio per dati storici
+    now = datetime.now()
+    history = [
+        RiskDataPoint(timestamp=now - timedelta(hours=i), risk_score=max(0, 0.5 + i * 0.1 - 0.2*i*i + 0.01*i*i*i)) 
+        for i in range(24)
+    ]
+    return history
+
+@app.get("/api/physiological-summary", tags=["Dashboard"])
+async def get_physiological_summary(current_user: str = Depends(get_current_user)):
+    # Logica di esempio per dati fisiologici
+    return {
+        "hr": [70, 72, 75, 73, 76, 78, 80, 79, 77, 75, 74, 72],
+        "hrv": [55, 53, 50, 52, 49, 47, 45, 46, 48, 50, 51, 53],
+        "labels": [f"{(datetime.now() - timedelta(hours=i)).strftime("%H:%M")}" for i in range(12)]
+    }
+
+@app.get("/api/medication-impact", tags=["Dashboard"])
+async def get_medication_impact(current_user: str = Depends(get_current_user)):
+    # Logica di esempio per impatto farmaci
+    return {
+        "with_medication": [0.3, 0.25, 0.2, 0.15, 0.1],
+        "without_medication": [0.6, 0.55, 0.5, 0.45, 0.4],
+        "labels": ["Giorno 1", "Giorno 2", "Giorno 3", "Giorno 4", "Giorno 5"]
     }
 
 

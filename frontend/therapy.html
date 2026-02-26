@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>La Mia Terapia - Epiguard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1>La Mia Terapia</h1>
+        <nav>
+            <a href="/dashboard">Dashboard</a>
+            <a href="/therapy">Terapia</a>
+            <a href="/settings">Impostazioni</a>
+            <a href="#" id="logout-btn">Logout</a>
+        </nav>
+    </header>
+
+    <main>
+        <section id="therapy-list">
+            <h2>I Miei Farmaci</h2>
+            <ul id="medications">
+                <!-- i farmaci verranno inseriti qui dinamicamente -->
+            </ul>
+        </section>
+
+        <section id="add-therapy">
+            <h2>Aggiungi Farmaco</h2>
+            <form id="add-medication-form">
+                <label for="medication-name">Nome Farmaco:</label>
+                <input type="text" id="medication-name" name="medication-name" required>
+
+                <label for="medication-dosage">Dosaggio (es. 50mg):</label>
+                <input type="text" id="medication-dosage" name="medication-dosage">
+
+                <label for="medication-time">Orario Assunzione:</label>
+                <input type="time" id="medication-time" name="medication-time">
+
+                <button type="submit">Aggiungi</button>
+            </form>
+        </section>
+    </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('accessToken');
+            if (!token) {
+                window.location.href = '/login';
+                return;
+            }
+
+            const headers = { 'Authorization': `Bearer ${token}` };
+
+            const loadTherapies = async () => {
+                try {
+                    const response = await fetch('/api/therapies', { headers });
+                    if (response.ok) {
+                        const therapies = await response.json();
+                        const medicationsList = document.getElementById('medications');
+                        medicationsList.innerHTML = '';
+                        therapies.forEach(therapy => {
+                            const li = document.createElement('li');
+                            li.textContent = `${therapy.medication_name} - ${therapy.dosage || ''} - ${therapy.intake_time || ''}`;
+                            const deleteButton = document.createElement('button');
+                            deleteButton.textContent = 'Elimina';
+                            deleteButton.onclick = () => deleteTherapy(therapy.id);
+                            li.appendChild(deleteButton);
+                            medicationsList.appendChild(li);
+                        });
+                    } else {
+                        console.error('Errore nel caricamento delle terapie');
+                    }
+                } catch (error) {
+                    console.error('Errore di rete:', error);
+                }
+            };
+
+            const addTherapy = async (event) => {
+                event.preventDefault();
+                const form = event.target;
+                const data = {
+                    medication_name: form['medication-name'].value,
+                    dosage: form['medication-dosage'].value,
+                    intake_time: form['medication-time'].value,
+                };
+
+                try {
+                    const response = await fetch('/api/therapies', {
+                        method: 'POST',
+                        headers: { ...headers, 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data),
+                    });
+
+                    if (response.ok) {
+                        loadTherapies();
+                        form.reset();
+                    } else {
+                        console.error('Errore nell\'aggiunta della terapia');
+                    }
+                } catch (error) {
+                    console.error('Errore di rete:', error);
+                }
+            };
+
+            const deleteTherapy = async (therapyId) => {
+                try {
+                    const response = await fetch(`/api/therapies/${therapyId}`, {
+                        method: 'DELETE',
+                        headers,
+                    });
+
+                    if (response.ok) {
+                        loadTherapies();
+                    } else {
+                        console.error('Errore nell\'eliminazione della terapia');
+                    }
+                } catch (error) {
+                    console.error('Errore di rete:', error);
+                }
+            };
+
+            document.getElementById('add-medication-form').addEventListener('submit', addTherapy);
+            document.getElementById('logout-btn').addEventListener('click', () => {
+                localStorage.removeItem('accessToken');
+                window.location.href = '/login';
+            });
+
+            loadTherapies();
+        });
+    </script>
+</body>
+</html>

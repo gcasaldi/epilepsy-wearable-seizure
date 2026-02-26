@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Optional
 import uuid
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, create_engine
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Time, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from app.config import settings
@@ -122,6 +122,17 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     hash_prev: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     hash_this: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+
+
+class Therapy(Base):
+    __tablename__ = "therapies"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    medication_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    dosage: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    intake_time: Mapped[Optional[datetime.time]] = mapped_column(Time, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 def init_security_db() -> None:

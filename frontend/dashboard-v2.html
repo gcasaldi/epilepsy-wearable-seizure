@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard Avanzata - Epiguard</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Dashboard Avanzata</h1>
+    <nav>
+        <a href="/dashboard">Dashboard</a>
+        <a href="/therapy">Terapia</a>
+        <a href="/settings">Impostazioni</a>
+        <a href="#" id="logout-btn">Logout</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="kpi-grid">
+      <div class="kpi-card">
+        <h3>Rischio Crisi Attuale</h3>
+        <p id="current-risk">N/D</p>
+      </div>
+      <div class="kpi-card">
+        <h3>Battito Cardiaco</h3>
+        <p id="current-hr">N/D</p>
+      </div>
+      <div class="kpi-card">
+        <h3>HRV</h3>
+        <p id="current-hrv">N/D</p>
+      </div>
+    </section>
+
+    <section class="chart-container">
+      <h2>Andamento Rischio Crisi</h2>
+      <canvas id="risk-chart"></canvas>
+    </section>
+
+    <section class="chart-container">
+      <h2>Analisi Fisiologica</h2>
+      <canvas id="physiological-chart"></canvas>
+    </section>
+    
+    <section class="chart-container">
+      <h2>Impatto Farmaci sul Rischio</h2>
+      <canvas id="medication-impact-chart"></canvas>
+    </section>
+  </main>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const token = localStorage.getItem('accessToken');
+        if (!token) {
+            window.location.href = '/login';
+            return;
+        }
+
+        const headers = { 'Authorization': `Bearer ${token}` };
+
+        // --- Funzioni per caricare i dati e creare i grafici ---
+
+        const loadRiskHistory = async () => {
+            try {
+                const response = await fetch('/api/risk-history', { headers });
+                if (!response.ok) throw new Error('Errore caricamento cronologia rischio');
+                const data = await response.json();
+                
+                document.getElementById('current-risk').textContent = data[0] ? `${(data[0].risk_score * 100).toFixed(1)}%` : 'N/D';
+
+                const ctx = document.getElementById('risk-chart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: data.map(d => new Date(d.timestamp).toLocaleTimeString()).reverse(),
+                        datasets: [{
+                            label: 'Punteggio Rischio',
+                            data: data.map(d => d.risk_score).reverse(),
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                            fill: true,
+                            tension: 0.3
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: { y: { beginAtZero: true, max: 1 } }
+                    }
+                });
+            } catch (error) {
+                console.error(error);
+            }
+        };
+
+        const loadPhysiologicalSummary = async () => {
+            try {
+                const response = await fetch('/api/physiological-summary', { headers });
+                if (!response.ok) throw new Error('Errore caricamento dati fisiologici');
+                const data = await response.json();
+
+                document.getElementById('current-hr').textContent = data.hr.length > 0 ? `${data.hr[data.hr.length - 1]} bpm` : 'N/D';
+                document.getElementById('current-hrv').textContent = data.hrv.length > 0 ? `${data.hrv[data.hrv.length - 1]} ms` : 'N/D';
+
+                const ctx = document.getElementById('physiological-chart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: data.labels.reverse(),
+                        datasets: [
+                            {
+                                label: 'Battito Cardiaco (bpm)',
+                                data: data.hr.reverse(),
+                                borderColor: 'rgba(54, 162, 235, 1)',
+                                yAxisID: 'y'
+                            },
+                            {
+                                label: 'HRV (ms)',
+                                data: data.hrv.reverse(),
+                                borderColor: 'rgba(75, 192, 192, 1)',
+                                yAxisID: 'y1'
+                            }
+                        ]
+                    },
+                     options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                type: 'linear',
+                                display: true,
+                                position: 'left',
+                                title: { text: 'Battito Cardiaco (bpm)', display: true }
+                            },
+                            y1: {
+                                type: 'linear',
+                                display: true,
+                                position: 'right',
+                                title: { text: 'HRV (ms)', display: true },
+                                grid: { drawOnChartArea: false }
+                            }
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error(error);
+            }
+        };
+
+        const loadMedicationImpact = async () => {
+            try {
+                const response = await fetch('/api/medication-impact', { headers });
+                if (!response.ok) throw new Error('Errore caricamento impatto farmaci');
+                const data = await response.json();
+
+                const ctx = document.getElementById('medication-impact-chart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: data.labels,
+                        datasets: [
+                            {
+                                label: 'Rischio con Farmaco',
+                                data: data.with_medication,
+                                backgroundColor: 'rgba(75, 192, 192, 0.6)'
+                            },
+                            {
+                                label: 'Rischio senza Farmaco (stimato)',
+                                data: data.without_medication,
+                                backgroundColor: 'rgba(255, 99, 132, 0.6)'
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: { y: { beginAtZero: true, max: 1 } },
+                        plugins: {
+                            tooltip: {
+                                callbacks: {
+                                    label: (context) => `${context.dataset.label}: ${(context.raw * 100).toFixed(1)}%`
+                                }
+                            }
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error(error);
+            }
+        };
+
+        // --- Inizializzazione ---
+
+        document.getElementById('logout-btn').addEventListener('click', () => {
+            localStorage.removeItem('accessToken');
+            window.location.href = '/login';
+        });
+        
+        loadRiskHistory();
+        loadPhysiologicalSummary();
+        loadMedicationImpact();
+    });
+  </script>
+</body>
+</html>

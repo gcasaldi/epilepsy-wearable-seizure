@@ -1,7 +1,7 @@
 """
 Modelli Pydantic per validazione dati
 """
-from datetime import datetime
+from datetime import datetime, time
 from typing import Optional
 from pydantic import BaseModel, Field
 
@@ -110,3 +110,21 @@ class AccountDeleteResponse(BaseModel):
     revoked_consents: int
     revoked_caregiver_links: int
     message: str
+
+# --- Terapia ---
+
+class TherapyRequest(BaseModel):
+    """Richiesta per aggiungere o modificare una terapia"""
+    medication_name: str = Field(..., description="Nome del farmaco")
+    dosage: Optional[str] = Field(None, description="Dosaggio (es. 50mg)")
+    intake_time: Optional[time] = Field(None, description="Orario di assunzione")
+
+    class Config:
+        orm_mode = True
+
+# --- Dashboard ---
+
+class RiskDataPoint(BaseModel):
+    """Punto dati per grafico andamento rischio"""
+    timestamp: datetime
+    risk_score: float
