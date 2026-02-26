@@ -12,12 +12,14 @@ import com.epilepsy.wearmonitor.sensor.TelemetrySnapshot
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
 class MonitorViewModel(application: Application) : AndroidViewModel(application) {
 
     private val apiClient = ApiClient()
-    private val sensorManager = HealthSensorManager()
+    private val sensorManager = HealthSensorManager(application)
     private val phoneBridge = PhoneBridge(application)
     private val alertManager = AlertManager(application)
 
@@ -26,6 +28,7 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
 
     private var lastHighRiskAlertAt = 0L
 
+    // ... (LocalPrediction and UiState data classes remain the same)
     private data class LocalPrediction(
         val riskScore: Float,
         val riskLevel: String,
@@ -60,20 +63,23 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
                 _uiState.value = _uiState.value.copy(isLoggedIn = true)
             }
         }
+
+        sensorManager.snapshotState
+            .onEach { snapshot ->
+                updateUiFromSnapshot(snapshot)
+                sendPrediction(snapshot)
+            }
+            .launchIn(viewModelScope)
     }
 
-    fun login() {
+    fun login(username: String, password: String) {
         viewModelScope.launch {
             try {
                 val context = getApplication<Application>()
                 val success = apiClient.login(
                     context,
-                    "demo.user@epilepsy.local",
-                    "DemoUser2026!"
-                ) || apiClient.login(
-                    context,
-                    "admin",
-                    "EpilepSy2025!Secure"
+                    username,
+                    password
                 )
                 _uiState.value = _uiState.value.copy(
                     isLoggedIn = success,
@@ -87,11 +93,7 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
 
     fun startMonitoring() {
         _uiState.value = _uiState.value.copy(isMonitoring = true, lastError = null)
-
-        sensorManager.startMonitoring(viewModelScope) { snapshot ->
-            updateUiFromSnapshot(snapshot)
-            sendPrediction(snapshot)
-        }
+        sensorManager.startMonitoring(viewModelScope)
     }
 
     fun stopMonitoring() {

@@ -44,6 +44,9 @@ fun WearApp(
 
 @Composable
 fun LoginScreen(viewModel: MonitorViewModel) {
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -52,15 +55,40 @@ fun LoginScreen(viewModel: MonitorViewModel) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
+            text = "Login",
+            style = MaterialTheme.typography.headline
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Text(
             text = "🧠 Epilepsy\nMonitor",
             style = MaterialTheme.typography.title3,
             textAlign = TextAlign.Center
         )
         
         Spacer(modifier = Modifier.height(16.dp))
+
+        TextField(
+            value = username,
+            onValueChange = { username = it },
+            label = { Text("Username") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        TextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("Password") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
         
         Button(
-            onClick = { viewModel.login() },
+            onClick = { viewModel.login(username, password) },
             modifier = Modifier.fillMaxWidth(0.8f)
         ) {
             Text("Login")

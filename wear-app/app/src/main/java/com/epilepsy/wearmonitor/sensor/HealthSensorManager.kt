@@ -1,11 +1,18 @@
+
 package com.epilepsy.wearmonitor.sensor
 
+import android.content.Context
+import androidx.health.services.client.HealthServices
+import androidx.health.services.client.MeasureCallback
+import androidx.health.services.client.data.Availability
+import androidx.health.services.client.data.DataType
+import androidx.health.services.client.data.SampleDataPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlin.random.Random
 
 data class TelemetrySnapshot(
     val heartRate: Int,
@@ -22,55 +29,68 @@ data class TelemetrySnapshot(
     val fallDetected: Boolean
 )
 
-class HealthSensorManager {
+class HealthSensorManager(context: Context) {
 
+    private val measureClient = HealthServices.getClient(context).measureClient
     private var monitoringJob: Job? = null
-    private var totalSteps = 1200
-    private var totalCalories = 80f
 
-    fun startMonitoring(scope: CoroutineScope, onDataReceived: (TelemetrySnapshot) -> Unit) {
-        monitoringJob?.cancel()
+    private val _snapshotState = MutableStateFlow(createEmptySnapshot())
+    val snapshotState: StateFlow<TelemetrySnapshot> = _snapshotState.asStateFlow()
 
-        monitoringJob = scope.launch {
-            while (isActive) {
-                onDataReceived(simulateTelemetry())
-                delay(5000)
+    private val measureCallback = object : MeasureCallback {
+        override fun onAvailabilityChanged(dataType: DataType, availability: Availability) {
+            // Handle sensor availability changes if needed
+        }
+
+        override fun onDataReceived(data: List<SampleDataPoint<*>>) {
+            var updatedSnapshot = _snapshotState.value
+            data.forEach { dataPoint ->
+                when (dataPoint.dataType) {
+                    DataType.HEART_RATE_BPM -> {
+                        val hr = dataPoint.value.toInt()
+                        updatedSnapshot = updatedSnapshot.copy(heartRate = hr)
+                    }
+                    DataType.HEART_RATE_VARIABILITY_RMSSD -> {
+                        val hrv = dataPoint.value.toFloat()
+                        updatedSnapshot = updatedSnapshot.copy(hrv = hrv)
+                    }
+                    // Add other data types as needed
+                    else -> {}
+                }
             }
+            _snapshotState.value = updatedSnapshot
+        }
+    }
+
+    fun startMonitoring(scope: CoroutineScope) {
+        monitoringJob?.cancel()
+        monitoringJob = scope.launch {
+            measureClient.registerMeasureCallback(DataType.HEART_RATE_BPM, measureCallback)
+            measureClient.registerMeasureCallback(DataType.HEART_RATE_VARIABILITY_RMSSD, measureCallback)
+            // Register other data types
         }
     }
 
     fun stopMonitoring() {
         monitoringJob?.cancel()
         monitoringJob = null
+        measureClient.unregisterMeasureCallback(DataType.HEART_RATE_BPM, measureCallback)
+        measureClient.unregisterMeasureCallback(DataType.HEART_RATE_VARIABILITY_RMSSD, measureCallback)
+        // Unregister other data types
     }
 
-    private fun simulateTelemetry(): TelemetrySnapshot {
-        val heartRate = Random.nextInt(58, 108)
-        val hrv = Random.nextDouble(22.0, 72.0).toFloat()
-        val movement = Random.nextDouble(30.0, 290.0).toFloat()
-        val sleepHours = Random.nextDouble(5.0, 8.8).toFloat()
-        val medicationTaken = true
-        val spo2 = Random.nextDouble(92.0, 99.6).toFloat()
-        val respiratoryRate = Random.nextDouble(11.0, 21.0).toFloat()
-        val skinTemperature = Random.nextDouble(35.2, 37.8).toFloat()
-        totalSteps += Random.nextInt(5, 40)
-        totalCalories += Random.nextDouble(0.6, 4.5).toFloat()
-        val stressIndex = ((110f - hrv).coerceIn(0f, 100f) / 100f)
-        val fallDetected = Random.nextInt(0, 250) == 1
-
-        return TelemetrySnapshot(
-            heartRate = heartRate,
-            hrv = hrv,
-            movement = movement,
-            sleepHours = sleepHours,
-            medicationTaken = medicationTaken,
-            spo2 = spo2,
-            respiratoryRate = respiratoryRate,
-            skinTemperature = skinTemperature,
-            steps = totalSteps,
-            stressIndex = stressIndex,
-            caloriesBurned = totalCalories,
-            fallDetected = fallDetected
-        )
-    }
+    private fun createEmptySnapshot() = TelemetrySnapshot(
+        heartRate = 0,
+        hrv = 0f,
+        movement = 0f,
+        sleepHours = 0f,
+        medicationTaken = true,
+        spo2 = null,
+        respiratoryRate = null,
+        skinTemperature = null,
+        steps = null,
+        stressIndex = null,
+        caloriesBurned = null,
+        fallDetected = false
+    )
 }

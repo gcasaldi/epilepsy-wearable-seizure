@@ -2,11 +2,25 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="refresh" content="0; url=/">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Redirect</title>
+  <title>Epilepsy Monitor</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <p>Redirect in corso verso la landing ufficiale… <a href="/">Apri Home</a></p>
+  <div class="container">
+    <h1>Epilepsy Monitor</h1>
+    <div id="telemetry">
+      <h2>Telemetry</h2>
+      <p>Heart Rate: <span id="heart-rate">--</span> bpm</p>
+      <p>HRV: <span id="hrv">--</span> ms</p>
+      <p>Movement: <span id="movement">--</span></p>
+      <p>SpO2: <span id="spo2">--</span>%</p>
+    </div>
+    <div id="alerts">
+      <h2>Alerts</h2>
+      <div id="alert-list"></div>
+    </div>
+  </div>
+  <script src="main.js"></script>
 </body>
 </html>
