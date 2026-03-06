@@ -236,6 +236,72 @@ curl http://localhost:8000/api/test \
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
+## 🌍 Portare Epiguard online
+
+Stack consigliata (semplice e stabile):
+
+- Frontend PWA su **Vercel** (o Netlify)
+- Backend FastAPI su **Render** (o Railway)
+- Database **PostgreSQL gestito**
+
+Obiettivo target:
+
+- Frontend: `https://epiguard.app`
+- Backend: `https://api.epiguard.app`
+
+Checklist essenziale:
+
+1. Separare ambiente `staging` e `production`.
+2. Configurare HTTPS e dominio custom.
+3. Attivare deploy automatico da GitHub.
+4. Usare database persistente separato per produzione.
+5. Eseguire beta test controllato (10-20 utenti).
+
+Guida completa operativa: [docs/go-live-epiguard.md](docs/go-live-epiguard.md)
+
+### GitHub Pages (frontend pubblico)
+
+Per usare il frontend su `https://gcasaldi.github.io/epilepsy-wearable-seizure/`:
+
+1. Il repository include deploy automatico Pages da `docs/` (`.github/workflows/deploy-pages.yml`).
+2. Il frontend Pages richiede un backend online (es. Render/Railway), per esempio `https://api.epiguard.app`.
+3. Al primo accesso puoi impostare un API base custom via query string:
+
+```text
+https://gcasaldi.github.io/epilepsy-wearable-seizure/?api_base=https://api.epiguard.app
+```
+
+L'URL API viene salvato in `localStorage` del browser (`epiguard_api_base`).
+
+### Firebase Hosting (web app online con CI da GitHub)
+
+Per pubblicare la web app su dominio vero (es. `app.epiguard.it`) con deploy automatico:
+
+1. Configura Firebase Hosting nel progetto (`firebase.json` gia pronto, pubblica `docs/`).
+2. Imposta i secrets GitHub repository:
+  - `FIREBASE_PROJECT_ID`
+  - `FIREBASE_TOKEN` (generato con `firebase login:ci`)
+3. Usa il workflow `.github/workflows/deploy-firebase-hosting.yml`.
+4. Ogni push su `main` deploya automaticamente il frontend su Firebase Hosting.
+
+Guida completa: [docs/deploy-firebase-hosting.md](docs/deploy-firebase-hosting.md)
+
+### Deploy backend online (Render / Railway)
+
+Nel repository trovi file pronti:
+
+- `render.yaml` (deploy automatico backend + Postgres su Render)
+- `railway.json` (deploy backend su Railway)
+- `Procfile` (start command standard)
+
+Start command backend:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
+
+Guida completa: [docs/go-live-epiguard.md](docs/go-live-epiguard.md)
+
 ## 📁 Struttura Progetto
 
 ```
