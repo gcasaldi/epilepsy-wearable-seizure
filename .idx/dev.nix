@@ -1,6 +1,6 @@
 # To learn more about how to use Nix to configure your environment
 # see: https://firebase.google.com/docs/studio/customize-workspace
-{ ... }: {
+{ pkgs ? import <nixpkgs> {} }: {
   # Which nixpkgs channel to use.
   channel = "stable-24.05"; # or "unstable"
 
@@ -13,6 +13,17 @@
     pkgs.python311Packages.scikit-learn
     pkgs.python311Packages.numpy
     pkgs.python311Packages.pandas
+    # Added dependencies from requirements.txt
+    pkgs.python311Packages.websockets
+    pkgs.python311Packages.pydantic
+    pkgs.python311Packages.pydantic-settings
+    pkgs.python311Packages.python-jose
+    pkgs.python311Packages.cryptography
+    pkgs.python311Packages.passlib
+    pkgs.python311Packages.bcrypt
+    pkgs.python311Packages.python-multipart
+    pkgs.python311Packages.google-auth
+    pkgs.python311Packages.sqlalchemy
   ];
 
   # Sets environment variables in the workspace
