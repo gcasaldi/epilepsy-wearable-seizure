@@ -1,19 +1,7 @@
-let
-  # Pin nixpkgs to a specific version for reproducibility
-  nixpkgs-src = builtins.fetchTarball {
-    url = "https://github.com/NixOS/nixpkgs/archive/nixos-24.05.tar.gz";
-  };
 
-  # Create a nixpkgs instance that allows unfree packages
-  pkgs = import nixpkgs-src {
-    config = {
-      allowUnfree = true;
-    };
-  };
-in
-# The main shell environment
+{ pkgs ? import (builtins.fetchTarball { url = "https://github.com/NixOS/nixpkgs/archive/nixos-24.05.tar.gz"; }) {} }:
+
 pkgs.mkShell {
-  # The packages to make available
   buildInputs = [
     pkgs.python311
     pkgs.python311Packages.pip
