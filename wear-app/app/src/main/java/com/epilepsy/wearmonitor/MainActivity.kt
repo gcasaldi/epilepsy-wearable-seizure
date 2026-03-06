@@ -1,20 +1,26 @@
 package com.epilepsy.wearmonitor
 
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.wear.compose.material.*
 import com.epilepsy.wearmonitor.ui.theme.EpilepsyWearTheme
 import com.epilepsy.wearmonitor.viewmodel.MonitorViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() { // FragmentActivity necessaria per BiometricPrompt
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -46,118 +52,167 @@ fun WearApp(
 fun LoginScreen(viewModel: MonitorViewModel) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
+    ScalingLazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        contentPadding = PaddingValues(top = 32.dp, start = 16.dp, end = 16.dp, bottom = 32.dp)
     ) {
-        Text(
-            text = "Login",
-            style = MaterialTheme.typography.headline
-        )
+        item {
+            Text(
+                text = "🧠 Epiguard",
+                style = MaterialTheme.typography.title3,
+                color = Color.Cyan
+            )
+        }
 
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        Text(
-            text = "🧠 Epilepsy\nMonitor",
-            style = MaterialTheme.typography.title3,
-            textAlign = TextAlign.Center
-        )
-        
-        Spacer(modifier = Modifier.height(16.dp))
+        item { Spacer(modifier = Modifier.height(8.dp)) }
 
-        TextField(
-            value = username,
-            onValueChange = { username = it },
-            label = { Text("Username") },
-            modifier = Modifier.fillMaxWidth()
-        )
+        item {
+            Button(
+                onClick = { /* TODO: Implementare Intent Google Sign-In */ },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.secondaryButtonColors()
+            ) {
+                Text("G Login Google")
+            }
+        }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        item {
+            Button(
+                onClick = { 
+                    showBiometricPrompt(context as FragmentActivity) {
+                        viewModel.login("admin", "EpilepSy2025!Secure") // Login rapido biometrico
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.secondaryButtonColors()
+            ) {
+                Text("☝️ Biometrico")
+            }
+        }
 
-        TextField(
-            value = password,
-            onValueChange = { password = it },
-            label = { Text("Password") },
-            modifier = Modifier.fillMaxWidth()
-        )
+        item {
+            Text("--- oppure ---", style = MaterialTheme.typography.caption2)
+        }
 
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        Button(
-            onClick = { viewModel.login(username, password) },
-            modifier = Modifier.fillMaxWidth(0.8f)
-        ) {
-            Text("Login")
+        item {
+            TextField(
+                value = username,
+                onValueChange = { username = it },
+                label = { Text("User") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        item {
+            TextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Pass") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        item {
+            Button(
+                onClick = { viewModel.login(username, password) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Accedi")
+            }
         }
     }
 }
 
+fun showBiometricPrompt(
+    activity: FragmentActivity,
+    onSuccess: () -> Unit
+) {
+    val executor = ContextCompat.getMainExecutor(activity)
+    val biometricPrompt = BiometricPrompt(activity, executor,
+        object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                super.onAuthenticationSucceeded(result)
+                onSuccess()
+            }
+        })
+
+    val promptInfo = BiometricPrompt.PromptInfo.Builder()
+        .setTitle("Accesso Epiguard")
+        .setSubtitle("Usa l'impronta o il PIN per accedere")
+        .setNegativeButtonText("Annulla")
+        .build()
+
+    biometricPrompt.authenticate(promptInfo)
+}
+
 @Composable
 fun MonitoringScreen(viewModel: MonitorViewModel, uiState: MonitorViewModel.UiState) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
+    ScalingLazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        contentPadding = PaddingValues(top = 32.dp, start = 16.dp, end = 16.dp, bottom = 32.dp)
     ) {
-        // Risk Circle
-        val riskColor = when (uiState.riskLevel) {
-            "low" -> androidx.compose.ui.graphics.Color.Green
-            "medium" -> androidx.compose.ui.graphics.Color.Yellow
-            "high" -> androidx.compose.ui.graphics.Color.Red
-            else -> androidx.compose.ui.graphics.Color.Gray
+        item {
+            val riskColor = when (uiState.riskLevel) {
+                "low" -> Color.Green
+                "medium" -> Color.Yellow
+                "high" -> Color.Red
+                else -> Color.Gray
+            }
+            
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(100.dp)) {
+                CircularProgressIndicator(
+                    progress = uiState.riskScore,
+                    modifier = Modifier.fillMaxSize(),
+                    startAngle = 295f,
+                    endAngle = 245f,
+                    indicatorColor = riskColor,
+                    trackColor = Color.DarkGray
+                )
+                Text(
+                    text = "${(uiState.riskScore * 100).toInt()}%",
+                    style = MaterialTheme.typography.display2,
+                    color = riskColor
+                )
+            }
         }
         
-        Text(
-            text = "${(uiState.riskScore * 100).toInt()}%",
-            style = MaterialTheme.typography.display1,
-            color = riskColor
-        )
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        Text(
-            text = uiState.message,
-            style = MaterialTheme.typography.caption1,
-            textAlign = TextAlign.Center
-        )
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        // Sensor data
-        Column(horizontalAlignment = Alignment.Start) {
-            Text("❤️ ${uiState.heartRate} bpm", style = MaterialTheme.typography.caption2)
-            Text("📊 HRV: ${uiState.hrv} ms", style = MaterialTheme.typography.caption2)
-            Text("🫁 SpO₂: ${uiState.spo2?.let { "%.1f".format(it) } ?: "--"}%", style = MaterialTheme.typography.caption2)
-            Text("👣 Steps: ${uiState.steps ?: 0}", style = MaterialTheme.typography.caption2)
-        }
-
-        if (uiState.lastError != null) {
-            Spacer(modifier = Modifier.height(8.dp))
+        item {
             Text(
-                text = "⚠ ${uiState.lastError}",
-                style = MaterialTheme.typography.caption2,
+                text = uiState.message,
+                style = MaterialTheme.typography.caption1,
                 textAlign = TextAlign.Center,
-                color = androidx.compose.ui.graphics.Color.Red
+                modifier = Modifier.padding(top = 8.dp)
             )
         }
         
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        // Control button
-        Button(
-            onClick = { 
-                if (uiState.isMonitoring) viewModel.stopMonitoring()
-                else viewModel.startMonitoring()
-            },
-            modifier = Modifier.fillMaxWidth(0.8f)
-        ) {
-            Text(if (uiState.isMonitoring) "Stop" else "Start")
+        item {
+            Row(
+                modifier = Modifier.padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                Chip(
+                    onClick = {},
+                    label = { Text("${uiState.heartRate}") },
+                    icon = { Text("❤️") },
+                    colors = ChipDefaults.secondaryChipColors()
+                )
+            }
+        }
+
+        item {
+            Button(
+                onClick = { 
+                    if (uiState.isMonitoring) viewModel.stopMonitoring()
+                    else viewModel.startMonitoring()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(if (uiState.isMonitoring) "STOP MONITOR" else "START MONITOR")
+            }
         }
     }
 }

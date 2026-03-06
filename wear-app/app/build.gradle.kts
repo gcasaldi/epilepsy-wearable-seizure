@@ -4,12 +4,19 @@ plugins {
 }
 
 android {
-    // Namespace per il codice generato (R.java, ecc.)
     namespace = "com.epiguard.wearmonitor"
     compileSdk = 34
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("../../epiguard_key.jks")
+            storePassword = "Epiguard2026!"
+            keyAlias = "epiguard_alias"
+            keyPassword = "Epiguard2026!"
+        }
+    }
+
     defaultConfig {
-        // ID UNICO SUL PLAY STORE - Non può essere cambiato dopo la pubblicazione
         applicationId = "com.epiguard.wearmonitor"
         minSdk = 28
         targetSdk = 34
@@ -19,7 +26,6 @@ android {
         val apiBaseUrl = (project.findProperty("API_BASE_URL") as String?) ?: "http://10.0.2.2:8010/"
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -27,14 +33,16 @@ android {
 
     buildTypes {
         release {
-            // Abilitiamo l'ottimizzazione e l'offuscamento per la sicurezza
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug") // Temporaneo finché non creiamo il keystore
+            signingConfig = signingConfigs.getByName("release")
+        }
+        debug {
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     
@@ -55,12 +63,6 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.4"
     }
-    
-    packaging {
-        resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
-        }
-    }
 }
 
 dependencies {
@@ -75,6 +77,11 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
     implementation("com.google.android.gms:play-services-wearable:18.1.0")
+    
+    // Auth & Biometrics
+    implementation("com.google.android.gms:play-services-auth:21.0.0")
+    implementation("androidx.biometric:biometric:1.1.0")
+    
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
