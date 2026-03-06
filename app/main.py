@@ -559,7 +559,7 @@ async def get_physiological_summary(current_user: str = Depends(get_current_user
     return {
         "hr": [70, 72, 75, 73, 76, 78, 80, 79, 77, 75, 74, 72],
         "hrv": [55, 53, 50, 52, 49, 47, 45, 46, 48, 50, 51, 53],
-        "labels": [f"{(datetime.now() - timedelta(hours=i)).strftime("%H:%M")}" for i in range(12)]
+        "labels": [(datetime.now() - timedelta(hours=i)).strftime("%H:%M") for i in range(12)]
     }
 
 @app.get("/api/medication-impact", tags=["Dashboard"])
