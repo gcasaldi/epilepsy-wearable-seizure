@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard Paziente - Epilessia Platform</title>
   <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body data-page="dashboard" class="page">
   <header class="topbar">
@@ -12,6 +13,7 @@
       <a href="/" class="brand">🧠 Epilessia Platform</a>
       <nav class="nav">
         <a href="/dashboard" class="nav-link">Dashboard</a>
+        <a href="/therapy" class="nav-link">Terapia</a>
         <a href="/consents" class="nav-link">Consensi</a>
         <a href="/settings" class="nav-link">Impostazioni</a>
         <a href="/app" class="nav-link">Scarica app</a>
@@ -38,16 +40,25 @@
 
     <section class="section">
       <div class="card">
-        <h3>Riepilogo ultimi eventi</h3>
-        <p id="lastMessage" class="muted">Nessun evento disponibile.</p>
+        <h3>Storico Rischio (ultime 24 ore)</h3>
+        <canvas id="riskHistoryChart"></canvas>
       </div>
     </section>
 
     <section class="section">
-      <div class="card">
-        <p>Registrazione eventi clinici preferibilmente nell’app mobile. La web app è orientata a consultazione e gestione consensi.</p>
-      </div>
+        <div class="card">
+            <h3>Riepilogo Fisiologico</h3>
+            <canvas id="physiologicalSummaryChart"></canvas>
+        </div>
     </section>
+
+    <section class="section">
+        <div class="card">
+            <h3>Impatto Farmaci sul Rischio</h3>
+            <canvas id="medicationImpactChart"></canvas>
+        </div>
+    </section>
+
   </main>
 
   <script src="/static/web.js"></script>
