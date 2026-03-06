@@ -118,6 +118,7 @@ class TherapyRequest(BaseModel):
     medication_name: str = Field(..., description="Nome del farmaco")
     dosage: Optional[str] = Field(None, description="Dosaggio (es. 50mg)")
     intake_time: Optional[time] = Field(None, description="Orario di assunzione")
+    created_at: datetime = Field(default_factory=datetime.now, description="Data creazione record")
 
     class Config:
         orm_mode = True
