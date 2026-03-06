@@ -2,7 +2,7 @@
 Modelli Pydantic per validazione dati
 """
 from datetime import datetime, time
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel, Field
 
 
@@ -121,7 +121,7 @@ class TherapyRequest(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now, description="Data creazione record")
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # --- Dashboard ---
 
@@ -129,3 +129,23 @@ class RiskDataPoint(BaseModel):
     """Punto dati per grafico andamento rischio"""
     timestamp: datetime
     risk_score: float
+
+class SeizureEventCreate(BaseModel):
+    """Richiesta creazione evento crisi/aura"""
+    event_type: str = Field(..., description="seizure, aura, suspicious")
+    intensity: Optional[int] = Field(None, ge=1, le=10)
+    notes: Optional[str] = None
+    timestamp: Optional[datetime] = Field(default_factory=datetime.now)
+
+class SeizureEventResponse(SeizureEventCreate):
+    """Risposta evento crisi/aura"""
+    id: str
+    
+    class Config:
+        from_attributes = True
+
+class BiometricSummary(BaseModel):
+    """Riassunto biometrico per dashboard"""
+    hr: List[int]
+    hrv: List[float]
+    labels: List[str]

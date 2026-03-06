@@ -3,64 +3,95 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Epilessia Platform</title>
+  <title>Epiguard | Monitoring Platform</title>
   <link rel="stylesheet" href="/static/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;700&display=swap" rel="stylesheet">
 </head>
-<body data-page="landing" class="page">
+<body data-page="landing">
+  
   <header class="topbar">
     <div class="container topbar-inner">
-      <a href="/" class="brand">🧠 Epilessia Platform</a>
+      <a href="/" class="brand">EPIGUARD <span style="font-size:0.6rem; vertical-align:top; color:rgba(0,242,255,0.4)">v1.0</span></a>
       <nav class="nav">
-        <a href="/app" class="nav-link">Scarica app</a>
-        <a href="/login" class="nav-link" data-nav-login>Accedi</a>
-        <button class="btn btn-secondary hidden" data-nav-logout>Esci</button>
-        <span class="nav-link hidden" data-user-badge></span>
+        <a href="/app" class="nav-link">SYSTEM_UNIT</a>
+        <a href="/login" class="nav-link">ACCESS_GATE</a>
       </nav>
     </div>
   </header>
 
   <main class="container">
-    <section class="hero">
-      <h1>Monitora l’epilessia. Condividi i dati solo quando vuoi.</h1>
-      <p>Supporto al monitoraggio, non diagnosi automatica.</p>
-      <div class="hero-actions">
-        <a href="/login" class="btn btn-primary">Accedi come Paziente</a>
-        <a href="/login/provider" class="btn btn-outline">Accesso Ente Sanitario</a>
-        <a href="/app" class="btn btn-secondary">Scarica l’app</a>
+    <!-- HERO SECTION -->
+    <section style="padding: 100px 0; text-align: center;">
+      <h1 style="font-size: 3.5rem; font-weight: 800; letter-spacing: -1px; margin-bottom: 20px; color: white;">
+        THE FUTURE OF <span style="color: var(--neon-blue); text-shadow: 0 0 20px rgba(0,242,255,0.3);">EPILEPSY CARE</span>
+      </h1>
+      <p class="muted" style="font-size: 1.2rem; max-width: 700px; margin: 0 auto 50px auto; line-height: 1.8;">
+        Monitoraggio biometrico avanzato e analisi del rischio basata su AI. 
+        Sincronizzazione wearable in tempo reale per una vita più sicura.
+      </p>
+      
+      <div style="display: flex; gap: 20px; justify-content: center; margin-top: 20px;">
+        <a href="/login" class="btn btn-primary" style="padding: 15px 40px; font-size: 1rem;">ACCEDI COME PAZIENTE</a>
+        <a href="/app" class="btn btn-outline" style="padding: 15px 40px; font-size: 1rem;">SCARICA L'APP UNIT</a>
       </div>
     </section>
 
-    <section class="section">
-      <h2>Come funziona</h2>
-      <div class="grid-3">
-        <article class="card"><h3>1) Monitora</h3><p>Il paziente registra eventi, terapie e andamento quotidiano.</p></article>
-        <article class="card"><h3>2) Scegli</h3><p>Condivide i dati solo con consenso esplicito e revocabile.</p></article>
-        <article class="card"><h3>3) Collabora</h3><p>L’ente analizza i casi in dashboard dedicata e sicura.</p></article>
+    <!-- FEATURES GRID -->
+    <section style="margin-top: 50px; padding: 50px 0;">
+      <p class="muted" style="text-align: center; letter-spacing: 4px; margin-bottom: 40px; font-family: var(--font-mono);">CORE_MODULES</p>
+      
+      <div class="dashboard-grid" style="grid-template-columns: repeat(3, 1fr);">
+        <article class="card">
+          <div style="color: var(--neon-blue); font-size: 1.5rem; margin-bottom: 15px;">01</div>
+          <h3>BIO_MONITORING</h3>
+          <p class="muted">Raccolta continua di HRV, frequenza cardiaca e pattern di movimento tramite wearable.</p>
+        </article>
+
+        <article class="card">
+          <div style="color: var(--neon-blue); font-size: 1.5rem; margin-bottom: 15px;">02</div>
+          <h3>AI_RISK_ANALYSIS</h3>
+          <p class="muted">Algoritmi predittivi che analizzano le anomalie fisiologiche per stimare il rischio di crisi.</p>
+        </article>
+
+        <article class="card">
+          <div style="color: var(--neon-blue); font-size: 1.5rem; margin-bottom: 15px;">03</div>
+          <h3>SECURE_GATEWAY</h3>
+          <p class="muted">I tuoi dati sono cifrati e condivisi con enti sanitari solo tramite il tuo consenso esplicito.</p>
+        </article>
       </div>
     </section>
 
-    <section class="section">
-      <h2>Per chi è</h2>
-      <div class="grid-2">
-        <article class="card"><h3>Pazienti / caregiver</h3><p>Visione personale, controllo consensi e sicurezza account.</p></article>
-        <article class="card"><h3>Ospedali e cliniche</h3><p>Vista multi-paziente solo con consenso attivo e verifiche ente.</p></article>
+    <!-- SYSTEM STATS / TECH SECTION -->
+    <section class="card" style="margin-top: 80px; padding: 60px; text-align: center; border-style: dashed; border-color: rgba(0,242,255,0.2);">
+      <h2 style="font-family: var(--font-mono); font-size: 1.5rem; color: var(--neon-blue); margin-bottom: 20px;">SYSTEM_INTEGRITY_VERIFIED</h2>
+      <p class="muted" style="margin-bottom: 40px;">Piattaforma conforme ai protocolli di sicurezza sanitaria e data retention rolling di 5 anni.</p>
+      
+      <div style="display: flex; justify-content: space-around; flex-wrap: wrap; gap: 30px;">
+        <div>
+          <div style="font-size: 2rem; font-family: var(--font-mono); color: white;">99.9%</div>
+          <div class="muted">UPTIME</div>
+        </div>
+        <div>
+          <div style="font-size: 2rem; font-family: var(--font-mono); color: white;">256-BIT</div>
+          <div class="muted">ENCRYPTION</div>
+        </div>
+        <div>
+          <div style="font-size: 2rem; font-family: var(--font-mono); color: white;">AI-DRIVEN</div>
+          <div class="muted">INSIGHTS</div>
+        </div>
       </div>
     </section>
 
-    <section class="section">
-      <h2>Sicurezza & fiducia</h2>
-      <div class="grid-3">
-        <article class="card"><h3>Consenso esplicito</h3><p>Condivisione dati attivata solo dal paziente.</p></article>
-        <article class="card"><h3>Revoca immediata</h3><p>Il paziente può interrompere l’accesso ente in qualsiasi momento.</p></article>
-        <article class="card"><h3>Audit enterprise</h3><p>Accessi e operazioni sensibili sono tracciati e verificabili.</p></article>
-      </div>
-    </section>
   </main>
 
-  <footer class="footer">
-    <div class="container footer-inner">
-      <div>© Epilessia Platform</div>
-      <div><a href="/privacy">Privacy</a> · <a href="/terms">Termini</a> · <a href="/contact">Contatti</a> · <a href="/disclaimer">Disclaimer medico</a></div>
+  <footer style="margin-top: 100px; padding: 40px 0; border-top: 1px solid rgba(255,255,255,0.05);">
+    <div class="container" style="display: flex; justify-content: space-between; align-items: center;">
+      <div class="muted">© 2026 EPIGUARD SYSTEMS</div>
+      <div class="nav">
+        <a href="/privacy" class="nav-link" style="font-size: 0.7rem;">PRIVACY</a>
+        <a href="/terms" class="nav-link" style="font-size: 0.7rem;">TERMS</a>
+        <a href="/disclaimer" class="nav-link" style="font-size: 0.7rem;">MEDICAL_DISCLAIMER</a>
+      </div>
     </div>
   </footer>
 

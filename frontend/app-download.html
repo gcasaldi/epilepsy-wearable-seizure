@@ -3,58 +3,55 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Scarica l'app - Epilessia Platform</title>
+  <title>Epiguard | Sync & Install</title>
   <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
 </head>
 <body data-page="app-download" class="page">
   <header class="topbar">
     <div class="container topbar-inner">
-      <a href="/" class="brand">🧠 Epilessia Platform</a>
+      <a href="/" class="brand">EPIGUARD <span style="font-size:0.6rem; vertical-align:top; color:rgba(0,242,255,0.4)">SY-45</span></a>
       <nav class="nav">
-        <a href="/app" class="nav-link">Scarica app</a>
-        <a href="/login" class="nav-link" data-nav-login>Accedi</a>
-        <button class="btn btn-secondary hidden" data-nav-logout>Esci</button>
-        <span class="nav-link hidden" data-user-badge></span>
+        <a href="/dashboard" class="nav-link">Monitor</a>
+        <a href="/login" class="nav-link">Login</a>
       </nav>
     </div>
   </header>
 
-  <main class="container">
-    <section class="page-head">
-      <h1>Usa l’app per registrare eventi e terapie</h1>
-      <p class="muted">L’app è il modo principale per i pazienti di monitorare l’epilessia.</p>
-    </section>
+  <main class="container" style="text-align: center; padding-top: 50px;">
+    <section class="card" style="max-width: 600px; margin: auto; padding: 40px;">
+      <h1 class="risk-low" style="margin-bottom: 20px;">SYNC_MOBILE_UNIT</h1>
+      <p class="muted" style="margin-bottom: 30px;">Scansiona il QR Code con il tuo smartphone per scaricare l'unità mobile (APK) e avviare il monitoraggio Wearable.</p>
+      
+      <div id="qrContainer" style="background: white; padding: 20px; border-radius: 4px; display: inline-block; margin-bottom: 30px;">
+          <canvas id="appQrCanvas"></canvas>
+      </div>
+      
+      <p style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--neon-blue); margin-top: 10px;">
+          SERVER_ENDPOINT: <span id="serverUrlDisplay">...</span>
+      </p>
 
-    <div id="mobileRedirectNotice" class="banner hidden">Browser mobile rilevato: reindirizzamento allo store in corso…</div>
-
-    <section class="grid-2">
-      <article class="card">
-        <h3>Download</h3>
-        <p class="muted">Scegli il tuo store oppure installa subito l'APK locale.</p>
-        <div class="hero-actions">
-          <a id="iosStoreLink" href="https://apps.apple.com/" class="btn btn-outline" target="_blank" rel="noopener noreferrer">App Store</a>
-          <a id="androidStoreLink" href="https://play.google.com/store/apps/details?id=com.epilepsy.wearmonitor" class="btn btn-outline" target="_blank" rel="noopener noreferrer">Google Play</a>
-          <a id="smartStoreLink" href="https://play.google.com/store/apps/details?id=com.epilepsy.wearmonitor" class="btn btn-primary">Apri store consigliato</a>
-          <a id="playSearchLink" href="https://play.google.com/store/search?q=epilepsy%20wear%20monitor&c=apps" class="btn btn-outline" target="_blank" rel="noopener noreferrer">Cerca su Play Store</a>
-          <a id="apkDownloadLink" href="/app/apk" class="btn btn-primary">Scarica APK locale</a>
-        </div>
-        <p class="muted" style="margin-top:10px;">Se la scheda Play non è ancora visibile, usa la ricerca diretta.</p>
-      </article>
-      <article class="card">
-        <h3>QR code APK locale</h3>
-        <img id="appQrImage" class="qr-image" alt="QR code download app">
-        <p class="muted" style="margin-top:10px;">Scansiona per download rapido dell'APK da questo server.</p>
-        <p id="apkQrHint" class="muted" style="margin-top:8px;"></p>
-      </article>
-    </section>
-
-    <section class="section">
-      <div class="card">
-        <p>L’accesso web è disponibile per consultazione e gestione avanzata.</p>
+      <div style="margin-top: 40px;">
+        <a id="directApkLink" href="/app/apk" class="btn btn-primary">DOWNLOAD_APK_DIRECT</a>
       </div>
     </section>
   </main>
 
-  <script src="/static/web.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const url = window.location.origin;
+        const apkUrl = url + '/app/apk';
+        document.getElementById('serverUrlDisplay').textContent = url;
+        
+        QRCode.toCanvas(document.getElementById('appQrCanvas'), apkUrl, {
+            width: 240,
+            margin: 1,
+            color: { dark: '#020205', light: '#ffffff' }
+        }, (err) => {
+            if (err) console.error(err);
+            console.log('QR Code generated successfully');
+        });
+    });
+  </script>
 </body>
 </html>

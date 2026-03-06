@@ -1,5 +1,5 @@
 """
-Configurazione dell'applicazione
+Configurazione dell'applicazione - Epiguard Cyber-Terminal
 """
 from pydantic_settings import BaseSettings
 
@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     """Configurazione con variabili d'ambiente"""
     
     # Application
-    app_name: str = "Epilepsy Seizure Prediction API"
+    app_name: str = "Epiguard AI Terminal"
     app_version: str = "1.0.0"
     debug: bool = True
     database_url: str = "sqlite:///./epilepsy_security.db"
@@ -20,7 +20,11 @@ class Settings(BaseSettings):
     
     # Admin credentials (hashed password)
     admin_username: str = "admin"
-    admin_password_hash: str = ""  # Generato al primo avvio
+    admin_password_hash: str = "" 
+
+    # --- CREDENZIALI TEST REALE GIULIA (NON CANCELLARE) ---
+    giulia_email: str = "giulia.casaldi@gmail.com"
+    giulia_password: str = "GiuliaEpi2026!"
 
     # Demo accounts (solo sviluppo)
     enable_demo_accounts: bool = True
@@ -33,8 +37,8 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     
     # Network Security
-    cors_origins: list[str] = ["http://localhost:8000"]
-    trusted_hosts: list[str] = ["localhost", "127.0.0.1"]
+    cors_origins: list[str] = ["*"]
+    trusted_hosts: list[str] = ["*"]
 
     # Auth hardening
     auth_rate_limit_window_seconds: int = 300

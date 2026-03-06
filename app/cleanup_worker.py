@@ -1,13 +1,10 @@
 
 import logging
+import time
 from datetime import datetime, timedelta
-from typing import List
+from app.security_db import SessionLocal, BiometricRecord, SeizureEvent, AuditLog
 
-# Placeholder for the database session and models
-# from .database import SessionLocal
-# from . import models
-
-# Configure logging
+# Configurazione logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -17,71 +14,44 @@ logging.basicConfig(
     ]
 )
 
-RETENTION_PERIOD_DAYS = 5 * 365  # 5 years
+RETENTION_PERIOD_DAYS = 5 * 365  # 5 anni (Rolling Retention)
 
-def get_db():
-    """Placeholder for getting a database session."""
-    # db = SessionLocal()
-    # try:
-    #     yield db
-    # finally:
-    #     db.close()
-    logging.warning("Using placeholder for database session.")
-    return None
-
-def cleanup_old_data(db, model, table_name: str):
-    """Deletes records older than the retention period for a given model."""
-    if not db:
-        logging.error(f"Database session not available. Skipping cleanup for {table_name}.")
-        return 0
-        
-    cutoff_date = datetime.now() - timedelta(days=RETENTION_PERIOD_DAYS)
+def cleanup_old_data():
+    """
+    Esegue la pulizia progressiva dei dati più vecchi di 5 anni.
+    Implementa la Data Retention Policy: cancellazione giornaliera rolling.
+    """
+    logging.info("Inizio job di cleanup Data Retention (5 anni rolling).")
     
-    try:
-        # Placeholder for the actual delete query
-        # num_deleted = db.query(model).filter(model.timestamp < cutoff_date).delete()
-        # db.commit()
-        
-        # Simulating deletion for now
-        num_deleted = 10 
-        
-        logging.info(f"Successfully deleted {num_deleted} records from {table_name} older than {cutoff_date.date()}.")
-        return num_deleted
-    except Exception as e:
-        logging.error(f"Error cleaning up {table_name}: {e}")
-        # db.rollback()
-        return 0
-
-def run_cleanup():
-    """Runs the cleanup process for all relevant tables."""
-    logging.info("Starting data retention cleanup job.")
+    db = SessionLocal()
+    cutoff_date = datetime.utcnow() - timedelta(days=RETENTION_PERIOD_DAYS)
     
-    db_session = get_db()
+    total_deleted = 0
     
-    total_deleted_count = 0
-    
-    # --- Models to be cleaned up ---
-    # This list would be populated with the actual model classes
-    models_to_cleanup = [
-        # (models.PhysiologicalData, "PhysiologicalData"),
-        # (models.RiskPrediction, "RiskPrediction"),
-        # (models.TherapyRequest, "TherapyRequest")
+    tables_to_clean = [
+        (BiometricRecord, "BiometricRecord"),
+        (SeizureEvent, "SeizureEvent"),
+        (AuditLog, "AuditLog")
     ]
     
-    if not models_to_cleanup:
-        logging.warning("No models configured for cleanup. Simulating for demonstration.")
-        models_to_cleanup = [
-            ("PlaceholderModel1", "PhysiologicalData"),
-            ("PlaceholderModel2", "RiskPrediction"),
-            ("PlaceholderModel3", "TherapyRequest")
-        ]
-
-
-    for model, name in models_to_cleanup:
-        deleted_count = cleanup_old_data(db_session, model, name)
-        total_deleted_count += deleted_count
+    try:
+        for model, name in tables_to_clean:
+            # Cancellazione progressiva
+            deleted = db.query(model).filter(model.timestamp < cutoff_date).delete() if hasattr(model, 'timestamp') else \
+                      db.query(model).filter(model.created_at < cutoff_date).delete()
+            
+            db.commit()
+            total_deleted += deleted
+            logging.info(f"Puliti {deleted} record obsoleti dalla tabella {name}.")
+            
+    except Exception as e:
+        logging.error(f"Errore durante il cleanup: {e}")
+        db.rollback()
+    finally:
+        db.close()
         
-    logging.info(f"Data retention cleanup job finished. Total records deleted: {total_deleted_count}.")
+    logging.info(f"Job di cleanup terminato. Record totali rimossi: {total_deleted}.")
 
 if __name__ == "__main__":
-    run_cleanup()
+    # Esegue il cleanup una volta se lanciato come script
+    cleanup_old_data()

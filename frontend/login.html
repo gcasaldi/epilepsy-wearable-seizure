@@ -1,93 +1,37 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Accesso - Epilepsy Seizure Prediction</title>
-    <link rel="stylesheet" href="/static/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Epiguard | Login</title>
+  <link rel="stylesheet" href="/static/style.css?v=2.0">
 </head>
-<body>
-    <div class="container">
-        <header>
-            <h1>Accedi alla Piattaforma</h1>
-            <p>Monitora la tua salute e prevedi i rischi con la nostra app innovativa.</p>
-        </header>
-
-        <main>
-            <div id="gsi-container">
-                <p>Usa il tuo account Google per accedere in modo sicuro:</p>
-                <div id="g_id_onload"
-                     data-auto_prompt="false"
-                     data-ux_mode="popup">
-                </div>
-                <div class="g_id_signin"
-                     data-type="standard"
-                     data-shape="rectangular"
-                     data-theme="outline"
-                     data-text="signin_with"
-                     data-size="large"
-                     data-logo_alignment="left">
-                </div>
-            </div>
-            <div id="auth-error" class="error-message" style="display: none;"></div>
-        </main>
-
-        <footer>
-            <p><a href="/privacy">Privacy Policy</a> | <a href="/terms">Termini di Servizio</a></p>
-        </footer>
+<body data-page="login" class="login-screen">
+  <div class="login-panel">
+    <h1>EPIGUARD <span class="muted">SY-45</span></h1>
+    <p class="muted" style="margin-bottom: 30px;">ACCESSO AI SISTEMI DI MONITORAGGIO</p>
+    
+    <form id="localLoginForm" style="text-align: left; margin-bottom: 30px;">
+        <div class="form-group" style="margin-bottom: 15px;">
+            <label class="muted" style="font-size: 0.7rem;">TERMINAL_ID (EMAIL)</label>
+            <input type="email" id="loginEmail" class="form-control" placeholder="EMAIL" required>
+        </div>
+        <div class="form-group" style="margin-bottom: 25px;">
+            <label class="muted" style="font-size: 0.7rem;">SECURITY_KEY (PASSWORD)</label>
+            <input type="password" id="loginPassword" class="form-control" placeholder="PASSWORD" required>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%;">AUTHENTICATE</button>
+    </form>
+    
+    <div style="margin: 20px 0; border-top: 1px solid rgba(0, 242, 255, 0.1); padding-top: 20px;">
+        <p class="muted">BACKUP_AUTH</p>
+        <div id="googlePatientButton" style="margin-top: 10px;"></div>
     </div>
 
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script>
-        window.onload = function () {
-            fetch('/auth/google-config')
-                .then(response => response.json())
-                .then(config => {
-                    if (config.enabled && config.google_client_id) {
-                        google.accounts.id.initialize({
-                            client_id: config.google_client_id,
-                            callback: handleCredentialResponse
-                        });
-                        google.accounts.id.renderButton(
-                            document.querySelector('.g_id_signin'),
-                            { theme: 'outline', size: 'large' }
-                        );
-                    } else {
-                        document.getElementById('gsi-container').innerHTML = '<p class="error-message">Il login con Google non è al momento configurato.</p>';
-                    }
-                })
-                .catch(error => {
-                    console.error('Error fetching Google config:', error);
-                    document.getElementById('gsi-container').innerHTML = '<p class="error-message">Impossibile caricare la configurazione di login. Riprova più tardi.</p>';
-                });
-        };
+    <div id="loginError" class="risk-high hidden" style="margin-top: 20px; font-size: 0.8rem;"></div>
+  </div>
 
-        function handleCredentialResponse(response) {
-            fetch('/auth/google', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ credential: response.credential }),
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.access_token) {
-                    localStorage.setItem('jwt_token', data.access_token);
-                    window.location.href = '/dashboard';
-                } else {
-                    const errorDiv = document.getElementById('auth-error');
-                    errorDiv.textContent = 'Autenticazione fallita: ' + (data.detail || 'Riprova.');
-                    errorDiv.style.display = 'block';
-                }
-            })
-            .catch(error => {
-                console.error('Login failed:', error);
-                const errorDiv = document.getElementById('auth-error');
-                errorDiv.textContent = 'Si è verificato un errore durante il login. Riprova.';
-                errorDiv.style.display = 'block';
-            });
-        }
-    </script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="/static/web.js?v=2.0"></script>
 </body>
 </html>
