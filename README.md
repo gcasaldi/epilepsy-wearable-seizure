@@ -98,6 +98,16 @@ Il server sarà disponibile su: **http://localhost:8000**
 - Endpoint APK: **http://localhost:8000/app/apk**
 - Se ricevi `404 APK non trovato`, compila prima la Wear app (`assembleDebug` o `assembleRelease`).
 
+### Download APK mobile via QR (diretto)
+
+Scansiona questo QR dal telefono per aprire direttamente il download APK mobile:
+
+![QR download APK mobile](https://automatic-fishstick-7vvpxxgp7p94fpxxv-8081.app.github.dev/qr-mobile-direct.png)
+
+Link diretto (stesso contenuto del QR):
+
+- `https://automatic-fishstick-7vvpxxgp7p94fpxxv-8081.app.github.dev/mobile-debug.apk`
+
 ### Google Sign-In disabilitato
 
 Se in `GET /auth/google-config` vedi `"enabled": false`, manca `GOOGLE_CLIENT_ID` nel file `.env`.
