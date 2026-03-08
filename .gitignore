@@ -26,3 +26,7 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Android / Gradle artifacts
+wear-app/.gradle/
+wear-app/**/build/

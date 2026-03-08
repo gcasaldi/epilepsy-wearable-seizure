@@ -15,3 +15,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "EpilepsyWearMonitor"
 include(":app")
+include(":mobile")
