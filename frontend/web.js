@@ -2,6 +2,7 @@ const TOKEN_KEY = 'authToken';
 const API_BASE_STORAGE_KEY = 'epiguard_api_base';
 const LOCAL_USERS_KEY = 'epiguard_local_users';
 const LOCAL_RECOVERY_TOKENS_KEY = 'epiguard_local_recovery_tokens';
+const LOCAL_FALLBACK_STORAGE_KEY = 'epiguard_local_fallback';
 
 const ROUTE_TO_PAGE = {
     '/': 'index.html',
@@ -102,6 +103,14 @@ const reminderTimers = {};
 
 function isStaticPagesApiBase() {
     return API_BASE.includes('github.io');
+}
+
+function isLocalFallbackEnabled() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('local_demo') === '1') {
+        localStorage.setItem(LOCAL_FALLBACK_STORAGE_KEY, '1');
+    }
+    return localStorage.getItem(LOCAL_FALLBACK_STORAGE_KEY) === '1';
 }
 
 function parseJsonBody(body) {
@@ -682,7 +691,7 @@ function clearSession() {
 }
 
 async function api(path, options = {}) {
-    if (isStaticPagesApiBase()) {
+    if (isStaticPagesApiBase() && isLocalFallbackEnabled()) {
         const localResult = await localApiFallback(path, options);
         if (localResult) {
             return localResult;
@@ -758,6 +767,87 @@ function showError(el, message) {
     }
     el.textContent = message;
     el.classList.add('show');
+}
+
+function supportsPasskey() {
+    return Boolean(window.PublicKeyCredential && navigator.credentials && navigator.credentials.create && navigator.credentials.get);
+}
+
+function base64urlToUint8Array(base64url) {
+    const padded = `${base64url}`.replace(/-/g, '+').replace(/_/g, '/');
+    const normalized = padded + '='.repeat((4 - (padded.length % 4)) % 4);
+    const binary = atob(normalized);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+}
+
+function arrayBufferToBase64url(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 1) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function preparePasskeyCreationOptions(options) {
+    const next = structuredClone(options);
+    next.challenge = base64urlToUint8Array(next.challenge);
+    if (next.user && next.user.id) {
+        next.user.id = base64urlToUint8Array(next.user.id);
+    }
+    if (Array.isArray(next.excludeCredentials)) {
+        next.excludeCredentials = next.excludeCredentials.map((entry) => ({
+            ...entry,
+            id: base64urlToUint8Array(entry.id),
+        }));
+    }
+    return next;
+}
+
+function preparePasskeyRequestOptions(options) {
+    const next = structuredClone(options);
+    next.challenge = base64urlToUint8Array(next.challenge);
+    if (Array.isArray(next.allowCredentials)) {
+        next.allowCredentials = next.allowCredentials.map((entry) => ({
+            ...entry,
+            id: base64urlToUint8Array(entry.id),
+        }));
+    }
+    return next;
+}
+
+function serializeCredentialForApi(credential) {
+    const response = credential.response || {};
+    const payload = {
+        id: credential.id,
+        rawId: arrayBufferToBase64url(credential.rawId),
+        type: credential.type,
+        clientExtensionResults: credential.getClientExtensionResults ? credential.getClientExtensionResults() : {},
+        response: {
+            clientDataJSON: arrayBufferToBase64url(response.clientDataJSON),
+        },
+    };
+
+    if (response.attestationObject) {
+        payload.response.attestationObject = arrayBufferToBase64url(response.attestationObject);
+        payload.response.transports = response.getTransports ? response.getTransports() : [];
+    }
+
+    if (response.authenticatorData) {
+        payload.response.authenticatorData = arrayBufferToBase64url(response.authenticatorData);
+    }
+    if (response.signature) {
+        payload.response.signature = arrayBufferToBase64url(response.signature);
+    }
+    if (response.userHandle) {
+        payload.response.userHandle = arrayBufferToBase64url(response.userHandle);
+    }
+
+    return payload;
 }
 
 function providerModeLabel(mode) {
@@ -1743,10 +1833,14 @@ async function boot() {
 
     if (page === 'login') {
         const error = document.getElementById('loginError');
+        const passkeyInfo = document.getElementById('passkeyInfo');
         const apiBaseInfo = document.getElementById('loginApiBase');
         const apiBaseInput = document.getElementById('apiBaseInput');
         if (apiBaseInfo) {
             apiBaseInfo.textContent = API_BASE;
+        }
+        if (isStaticPagesApiBase() && !isLocalFallbackEnabled()) {
+            showError(error, 'Modalita demo locale disattivata: imposta un backend API reale per salvare dati e credenziali in database.');
         }
         if (apiBaseInput) {
             apiBaseInput.value = localStorage.getItem(API_BASE_STORAGE_KEY) || '';
@@ -1803,6 +1897,111 @@ async function boot() {
                     goTo('/dashboard');
                 } catch (err) {
                     showError(error, err.message || 'Login locale non riuscito');
+                }
+            });
+        }
+
+        const passkeyEmailInput = document.getElementById('passkeyEmail');
+        const passkeyRegisterBtn = document.getElementById('passkeyRegisterBtn');
+        const passkeyLoginBtn = document.getElementById('passkeyLoginBtn');
+
+        const setPasskeyInfo = (message) => {
+            if (passkeyInfo) {
+                passkeyInfo.textContent = message || '';
+            }
+        };
+
+        const readPasskeyEmail = () => {
+            const email = (passkeyEmailInput?.value || '').trim().toLowerCase();
+            if (!email || !email.includes('@')) {
+                throw new Error('Inserisci una email valida per usare la passkey');
+            }
+            return email;
+        };
+
+        if (!supportsPasskey()) {
+            if (passkeyRegisterBtn) passkeyRegisterBtn.disabled = true;
+            if (passkeyLoginBtn) passkeyLoginBtn.disabled = true;
+            setPasskeyInfo('Passkey non supportata su questo browser/dispositivo.');
+        }
+
+        if (passkeyRegisterBtn) {
+            passkeyRegisterBtn.addEventListener('click', async () => {
+                showError(error, '');
+                try {
+                    if (!supportsPasskey()) {
+                        throw new Error('Passkey non supportata su questo dispositivo');
+                    }
+
+                    const email = readPasskeyEmail();
+                    setPasskeyInfo('Preparazione registrazione passkey...');
+
+                    const begin = await api('/auth/passkey/register/options', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email }),
+                    });
+
+                    const creationOptions = preparePasskeyCreationOptions(begin.options);
+                    const credential = await navigator.credentials.create({ publicKey: creationOptions });
+                    if (!credential) {
+                        throw new Error('Registrazione passkey annullata');
+                    }
+
+                    await api('/auth/passkey/register/complete', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            email,
+                            credential: serializeCredentialForApi(credential),
+                        }),
+                    });
+
+                    setPasskeyInfo('Passkey registrata. Ora puoi accedere con biometria.');
+                } catch (err) {
+                    setPasskeyInfo('');
+                    showError(error, err.message || 'Registrazione passkey non riuscita');
+                }
+            });
+        }
+
+        if (passkeyLoginBtn) {
+            passkeyLoginBtn.addEventListener('click', async () => {
+                showError(error, '');
+                try {
+                    if (!supportsPasskey()) {
+                        throw new Error('Passkey non supportata su questo dispositivo');
+                    }
+
+                    const email = readPasskeyEmail();
+                    setPasskeyInfo('Preparazione login passkey...');
+
+                    const begin = await api('/auth/passkey/login/options', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email }),
+                    });
+
+                    const requestOptions = preparePasskeyRequestOptions(begin.options);
+                    const assertion = await navigator.credentials.get({ publicKey: requestOptions });
+                    if (!assertion) {
+                        throw new Error('Accesso passkey annullato');
+                    }
+
+                    const res = await api('/auth/passkey/login/complete', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            email,
+                            credential: serializeCredentialForApi(assertion),
+                        }),
+                    });
+
+                    setToken(res.access_token);
+                    goTo('/dashboard');
+                } catch (err) {
+                    setPasskeyInfo('');
+                    showError(error, err.message || 'Login passkey non riuscito');
                 }
             });
         }

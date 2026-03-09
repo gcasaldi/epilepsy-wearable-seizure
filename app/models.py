@@ -61,6 +61,30 @@ class PasswordRecoveryResponse(BaseModel):
     expires_in_seconds: Optional[int] = None
 
 
+class PasskeyBeginRequest(BaseModel):
+    """Richiesta avvio flusso passkey per una email."""
+    email: str = Field(..., min_length=5, description="Email account")
+
+
+class PasskeyCompleteRequest(BaseModel):
+    """Conferma challenge passkey con payload credenziale WebAuthn."""
+    email: str = Field(..., min_length=5, description="Email account")
+    credential: dict = Field(..., description="Credential JSON restituita da WebAuthn")
+
+
+class PasskeyOptionsResponse(BaseModel):
+    """Opzioni da passare a navigator.credentials.*"""
+    options: dict
+    expires_in_seconds: int
+
+
+class PasskeyStatusResponse(BaseModel):
+    """Stato passkey configurate per account."""
+    email: str
+    has_passkeys: bool
+    count: int
+
+
 # --- Dati Fisiologici ---
 
 class PhysiologicalData(BaseModel):

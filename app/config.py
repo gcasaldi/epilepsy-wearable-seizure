@@ -49,6 +49,15 @@ class Settings(BaseSettings):
     # Auth hardening
     auth_rate_limit_window_seconds: int = 300
     auth_rate_limit_max_attempts: int = 10
+
+    # Data retention (vincolo: almeno 3 anni)
+    data_retention_days: int = 365 * 3
+
+    # Passkey / WebAuthn
+    passkey_rp_name: str = "Epiguard"
+    passkey_rp_id: str = "localhost"
+    passkey_origins: list[str] = ["http://localhost:8000", "http://127.0.0.1:8000"]
+    passkey_challenge_ttl_seconds: int = 300
     
     # Thresholds rischio
     low_risk_threshold: float = 0.33

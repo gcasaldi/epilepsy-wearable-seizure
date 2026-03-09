@@ -30,6 +30,7 @@ from app.models import (
     WearableProvidersResponse, WearableProviderStatus,
     LoginRequest, RegisterRequest,
     PasswordRecoveryRequest, PasswordRecoveryConfirmRequest, PasswordRecoveryResponse,
+    PasskeyBeginRequest, PasskeyCompleteRequest, PasskeyOptionsResponse, PasskeyStatusResponse,
     ManualBiometricRequest,
 )
 from app.auth import (
@@ -41,7 +42,15 @@ from app.auth import (
 )
 from app.predictor import predictor
 from app.config import settings
-from app.security_db import SessionLocal, init_security_db, Therapy, PasswordRecoveryToken, BiometricRecord
+from app.security_db import (
+    SessionLocal,
+    init_security_db,
+    Therapy,
+    PasswordRecoveryToken,
+    BiometricRecord,
+    PasskeyCredential,
+    PasskeyChallenge,
+)
 from app.security_service import (
     ensure_provider_organization_context,
     ensure_user_exists,
@@ -58,6 +67,21 @@ from app.wearable_service import (
     list_supported_providers,
     upsert_connection,
     disconnect_connection,
+)
+from webauthn import (
+    generate_registration_options,
+    verify_registration_response,
+    generate_authentication_options,
+    verify_authentication_response,
+)
+from webauthn.helpers import options_to_json
+from webauthn.helpers.base64url_to_bytes import base64url_to_bytes
+from webauthn.helpers.bytes_to_base64url import bytes_to_base64url
+from webauthn.helpers.structs import (
+    PublicKeyCredentialDescriptor,
+    RegistrationCredential,
+    AuthenticationCredential,
+    UserVerificationRequirement,
 )
 
 # Logging
@@ -181,6 +205,59 @@ def exchange_fitbit_oauth_code(code: str, redirect_uri: str) -> dict | None:
 
 def hash_recovery_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+def _normalize_email(email: str) -> str:
+    return email.strip().lower()
+
+
+def _validate_email(email: str) -> str:
+    normalized = _normalize_email(email)
+    if "@" not in normalized or "." not in normalized.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="Email non valida")
+    return normalized
+
+
+def _cleanup_expired_passkey_challenges(db):
+    db.query(PasskeyChallenge).filter(
+        PasskeyChallenge.expires_at <= datetime.utcnow()
+    ).delete()
+
+
+def _create_passkey_challenge(db, email: str, flow: str, challenge_b64url: str) -> int:
+    _cleanup_expired_passkey_challenges(db)
+    ttl = max(60, settings.passkey_challenge_ttl_seconds)
+    expires_at = datetime.utcnow() + timedelta(seconds=ttl)
+
+    db.add(
+        PasskeyChallenge(
+            email=email,
+            flow=flow,
+            challenge=challenge_b64url,
+            expires_at=expires_at,
+        )
+    )
+    db.commit()
+    return ttl
+
+
+def _consume_passkey_challenge(db, email: str, flow: str) -> PasskeyChallenge:
+    row = (
+        db.query(PasskeyChallenge)
+        .filter(
+            PasskeyChallenge.email == email,
+            PasskeyChallenge.flow == flow,
+            PasskeyChallenge.used_at.is_(None),
+            PasskeyChallenge.expires_at > datetime.utcnow(),
+        )
+        .order_by(PasskeyChallenge.created_at.desc())
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=400, detail="Challenge passkey scaduta o non valida")
+    row.used_at = datetime.utcnow()
+    db.commit()
+    return row
 
 # CORS
 app.add_middleware(
@@ -402,6 +479,256 @@ async def google_config():
         "google_client_id": settings.google_client_id,
         "enabled": bool(settings.google_client_id)
     }
+
+
+@app.post(
+    "/auth/passkey/register/options",
+    response_model=PasskeyOptionsResponse,
+    tags=["Authentication"],
+    summary="Avvia registrazione passkey biometrica"
+)
+async def begin_passkey_registration(payload: PasskeyBeginRequest, http_request: Request):
+    ip = http_request.client.host if http_request.client else "unknown"
+    limiter_key = f"passkey_register_begin:{ip}"
+    auth_rate_limiter.check(limiter_key)
+
+    email = _validate_email(payload.email)
+
+    db = SessionLocal()
+    try:
+        user = ensure_user_exists(
+            db,
+            email=email,
+            auth_provider="local",
+            account_type="personal",
+            provider_status=None,
+        )
+
+        existing = db.query(PasskeyCredential).filter(PasskeyCredential.user_id == user.id).all()
+        exclude_credentials = [
+            PublicKeyCredentialDescriptor(id=base64url_to_bytes(row.credential_id)) for row in existing
+        ]
+
+        options = generate_registration_options(
+            rp_id=settings.passkey_rp_id,
+            rp_name=settings.passkey_rp_name,
+            user_id=user.id.encode("utf-8"),
+            user_name=user.email,
+            user_display_name=user.email,
+            user_verification=UserVerificationRequirement.PREFERRED,
+            exclude_credentials=exclude_credentials,
+        )
+
+        options_dict = json.loads(options_to_json(options))
+        challenge = options_dict.get("challenge")
+        if not challenge:
+            raise HTTPException(status_code=500, detail="Challenge passkey non generata")
+
+        ttl = _create_passkey_challenge(db, email=email, flow="register", challenge_b64url=challenge)
+        return PasskeyOptionsResponse(options=options_dict, expires_in_seconds=ttl)
+    finally:
+        db.close()
+
+
+@app.post(
+    "/auth/passkey/register/complete",
+    tags=["Authentication"],
+    summary="Completa registrazione passkey biometrica"
+)
+async def complete_passkey_registration(payload: PasskeyCompleteRequest, http_request: Request):
+    ip = http_request.client.host if http_request.client else "unknown"
+    limiter_key = f"passkey_register_complete:{ip}"
+    auth_rate_limiter.check(limiter_key)
+
+    email = _validate_email(payload.email)
+
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, email)
+        if not user:
+            raise HTTPException(status_code=404, detail="Utente non trovato")
+
+        challenge_row = _consume_passkey_challenge(db, email=email, flow="register")
+        expected_challenge = challenge_row.challenge
+
+        verified = verify_registration_response(
+            credential=RegistrationCredential.parse_raw(json.dumps(payload.credential)),
+            expected_challenge=expected_challenge,
+            expected_rp_id=settings.passkey_rp_id,
+            expected_origin=settings.passkey_origins,
+            require_user_verification=True,
+        )
+
+        credential_id = bytes_to_base64url(verified.credential_id)
+        public_key = bytes_to_base64url(verified.credential_public_key)
+        transports = payload.credential.get("response", {}).get("transports")
+        transports_str = ",".join(transports) if isinstance(transports, list) else None
+
+        row = db.query(PasskeyCredential).filter(PasskeyCredential.credential_id == credential_id).first()
+        if row:
+            row.public_key = public_key
+            row.sign_count = int(verified.sign_count)
+            row.last_used_at = datetime.utcnow()
+            row.user_id = user.id
+            row.transports = transports_str
+        else:
+            db.add(
+                PasskeyCredential(
+                    user_id=user.id,
+                    credential_id=credential_id,
+                    public_key=public_key,
+                    sign_count=int(verified.sign_count),
+                    transports=transports_str,
+                    last_used_at=datetime.utcnow(),
+                )
+            )
+        db.commit()
+
+        return {
+            "status": "success",
+            "message": "Passkey biometrica registrata con successo.",
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        auth_rate_limiter.register(limiter_key)
+        raise HTTPException(status_code=400, detail="Registrazione passkey non valida")
+    finally:
+        db.close()
+
+
+@app.post(
+    "/auth/passkey/login/options",
+    response_model=PasskeyOptionsResponse,
+    tags=["Authentication"],
+    summary="Avvia login con passkey biometrica"
+)
+async def begin_passkey_login(payload: PasskeyBeginRequest, http_request: Request):
+    ip = http_request.client.host if http_request.client else "unknown"
+    limiter_key = f"passkey_login_begin:{ip}"
+    auth_rate_limiter.check(limiter_key)
+
+    email = _validate_email(payload.email)
+
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, email)
+        if not user:
+            raise HTTPException(status_code=404, detail="Utente non trovato")
+
+        credentials = db.query(PasskeyCredential).filter(PasskeyCredential.user_id == user.id).all()
+        if not credentials:
+            raise HTTPException(status_code=404, detail="Nessuna passkey registrata per questo account")
+
+        allow_credentials = [
+            PublicKeyCredentialDescriptor(id=base64url_to_bytes(row.credential_id)) for row in credentials
+        ]
+        options = generate_authentication_options(
+            rp_id=settings.passkey_rp_id,
+            allow_credentials=allow_credentials,
+            user_verification=UserVerificationRequirement.PREFERRED,
+        )
+        options_dict = json.loads(options_to_json(options))
+        challenge = options_dict.get("challenge")
+        if not challenge:
+            raise HTTPException(status_code=500, detail="Challenge passkey non generata")
+
+        ttl = _create_passkey_challenge(db, email=email, flow="login", challenge_b64url=challenge)
+        return PasskeyOptionsResponse(options=options_dict, expires_in_seconds=ttl)
+    finally:
+        db.close()
+
+
+@app.post(
+    "/auth/passkey/login/complete",
+    response_model=TokenResponse,
+    tags=["Authentication"],
+    summary="Completa login con passkey biometrica"
+)
+async def complete_passkey_login(payload: PasskeyCompleteRequest, http_request: Request):
+    ip = http_request.client.host if http_request.client else "unknown"
+    limiter_key = f"passkey_login_complete:{ip}"
+    auth_rate_limiter.check(limiter_key)
+
+    email = _validate_email(payload.email)
+
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, email)
+        if not user:
+            raise HTTPException(status_code=404, detail="Utente non trovato")
+
+        challenge_row = _consume_passkey_challenge(db, email=email, flow="login")
+        expected_challenge = challenge_row.challenge
+
+        credential_id = payload.credential.get("id")
+        if not credential_id:
+            raise HTTPException(status_code=400, detail="Credential ID passkey mancante")
+
+        credential_row = (
+            db.query(PasskeyCredential)
+            .filter(
+                PasskeyCredential.user_id == user.id,
+                PasskeyCredential.credential_id == credential_id,
+            )
+            .first()
+        )
+        if not credential_row:
+            raise HTTPException(status_code=401, detail="Passkey non riconosciuta")
+
+        verified = verify_authentication_response(
+            credential=AuthenticationCredential.parse_raw(json.dumps(payload.credential)),
+            expected_challenge=expected_challenge,
+            expected_rp_id=settings.passkey_rp_id,
+            expected_origin=settings.passkey_origins,
+            credential_public_key=base64url_to_bytes(credential_row.public_key),
+            credential_current_sign_count=int(credential_row.sign_count),
+            require_user_verification=True,
+        )
+
+        credential_row.sign_count = int(verified.new_sign_count)
+        credential_row.last_used_at = datetime.utcnow()
+        db.commit()
+
+        access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
+        access_token = create_access_token(
+            data={"sub": user.email, "ver": user.token_version},
+            expires_delta=access_token_expires,
+        )
+
+        return TokenResponse(
+            access_token=access_token,
+            token_type="bearer",
+            expires_in=settings.access_token_expire_minutes * 60,
+            username=user.email,
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        auth_rate_limiter.register(limiter_key)
+        raise HTTPException(status_code=401, detail="Login passkey non valido")
+    finally:
+        db.close()
+
+
+@app.get(
+    "/auth/passkey/status",
+    response_model=PasskeyStatusResponse,
+    tags=["Authentication"],
+    summary="Verifica se account ha passkey registrate"
+)
+async def passkey_status(email: str):
+    normalized_email = _validate_email(email)
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, normalized_email)
+        if not user:
+            return PasskeyStatusResponse(email=normalized_email, has_passkeys=False, count=0)
+
+        count = db.query(PasskeyCredential).filter(PasskeyCredential.user_id == user.id).count()
+        return PasskeyStatusResponse(email=normalized_email, has_passkeys=count > 0, count=count)
+    finally:
+        db.close()
 
 
 @app.post(

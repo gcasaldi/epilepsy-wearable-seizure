@@ -3,6 +3,7 @@ import logging
 import time
 from datetime import datetime, timedelta
 from app.security_db import SessionLocal, BiometricRecord, SeizureEvent, AuditLog
+from app.config import settings
 
 # Configurazione logging
 logging.basicConfig(
@@ -14,14 +15,15 @@ logging.basicConfig(
     ]
 )
 
-RETENTION_PERIOD_DAYS = 5 * 365  # 5 anni (Rolling Retention)
+MIN_RETENTION_DAYS = 3 * 365
+RETENTION_PERIOD_DAYS = max(settings.data_retention_days, MIN_RETENTION_DAYS)
 
 def cleanup_old_data():
     """
     Esegue la pulizia progressiva dei dati più vecchi di 5 anni.
     Implementa la Data Retention Policy: cancellazione giornaliera rolling.
     """
-    logging.info("Inizio job di cleanup Data Retention (5 anni rolling).")
+    logging.info("Inizio job di cleanup Data Retention (%s giorni rolling).", RETENTION_PERIOD_DAYS)
     
     db = SessionLocal()
     cutoff_date = datetime.utcnow() - timedelta(days=RETENTION_PERIOD_DAYS)
