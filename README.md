@@ -308,15 +308,20 @@ Guida completa operativa: [docs/go-live-epiguard.md](docs/go-live-epiguard.md)
 
 Per usare il frontend su `https://gcasaldi.github.io/epilepsy-wearable-seizure/`:
 
-1. Il repository include deploy automatico Pages da `docs/` (`.github/workflows/deploy-pages.yml`).
+1. Il repository include deploy automatico Pages da `frontend/` (`.github/workflows/deploy-pages.yml`).
 2. Il frontend Pages richiede un backend online (es. Render/Railway), per esempio `https://api.epiguard.app`.
-3. Al primo accesso puoi impostare un API base custom via query string:
+3. Al primo accesso imposta API base via query string:
 
 ```text
 https://gcasaldi.github.io/epilepsy-wearable-seizure/?api_base=https://api.epiguard.app
 ```
 
 L'URL API viene salvato in `localStorage` del browser (`epiguard_api_base`).
+
+Note utili:
+
+- Senza `api_base`, il frontend usa automaticamente il dominio corrente.
+- Per aggiornare backend API in seguito, riapri l'app con `?api_base=...`.
 
 ### Firebase Hosting (web app online con CI da GitHub)
 
