@@ -37,6 +37,45 @@
     </section>
 
     <section class="section">
+      <div class="grid-2">
+        <article class="card">
+          <h3>Storico rischio (ultime 24h)</h3>
+          <p class="muted">Andamento orario per capire se stai migliorando.</p>
+          <div id="riskHistoryList" class="demo-form"></div>
+        </article>
+        <article class="card">
+          <h3>Suggerimenti AI personalizzati</h3>
+          <p class="muted">Raccomandazioni pratiche basate su rischio, sonno e aderenza terapia.</p>
+          <ul id="aiTips" class="demo-form"></ul>
+          <a href="/dashboard-v2" class="btn btn-outline">Apri dashboard avanzata</a>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="grid-2">
+        <article class="card">
+          <h3>Gestione farmaci</h3>
+          <form id="quickTherapyForm" class="demo-form">
+            <label for="quickMedicationName">Farmaco</label>
+            <input id="quickMedicationName" class="form-control" type="text" required>
+            <label for="quickMedicationDose">Dosaggio</label>
+            <input id="quickMedicationDose" class="form-control" type="text" placeholder="es. 50mg">
+            <label for="quickMedicationTime">Orario</label>
+            <input id="quickMedicationTime" class="form-control" type="time">
+            <button type="submit" class="btn btn-primary">Aggiungi farmaco</button>
+          </form>
+        </article>
+        <article class="card">
+          <h3>Terapia attiva</h3>
+          <p class="muted">Puoi eliminare o aggiornare i farmaci direttamente da qui.</p>
+          <div id="therapyList" class="demo-form"></div>
+          <a href="/therapy" class="btn btn-outline">Apri pagina terapia completa</a>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
       <div class="card">
         <h3>Riepilogo ultimi eventi</h3>
         <p id="lastMessage" class="muted">Nessun evento disponibile.</p>

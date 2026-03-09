@@ -818,6 +818,90 @@ function renderDemoRisk(result) {
     msgEl.textContent = result.message;
 }
 
+function riskLabel(score) {
+    if (score >= 0.67) return 'HIGH';
+    if (score >= 0.34) return 'MEDIUM';
+    return 'LOW';
+}
+
+function renderRiskHistory(items) {
+    const list = document.getElementById('riskHistoryList');
+    if (!list) return;
+    if (!items || !items.length) {
+        list.innerHTML = '<p class="muted">Storico non disponibile.</p>';
+        return;
+    }
+
+    list.innerHTML = items.slice(0, 12).map((item) => {
+        const pct = Math.round(item.risk_score * 100);
+        const level = riskLabel(item.risk_score).toLowerCase();
+        return `
+            <div class="card" style="padding: 0.6rem; margin-bottom: 0.5rem;">
+                <div style="display:flex; justify-content:space-between; gap:0.6rem;">
+                    <span class="muted">${new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    <strong class="risk-${level}">${pct}%</strong>
+                </div>
+                <div style="height:8px; background:rgba(255,255,255,0.08); margin-top:0.35rem;">
+                    <div style="height:8px; width:${pct}%; background:linear-gradient(90deg,#00ff88,#ffcc00,#ff3131);"></div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function buildAiTips({ riskText, riskScore, therapies }) {
+    const tips = [];
+    if (riskScore >= 0.67) {
+        tips.push('Rischio alto: riduci stimoli, resta in ambiente sicuro e avvisa un caregiver.');
+    } else if (riskScore >= 0.34) {
+        tips.push('Rischio medio: privilegia riposo e idratazione nelle prossime ore.');
+    } else {
+        tips.push('Rischio basso: mantieni routine stabile e monitoraggio leggero.');
+    }
+
+    if (!therapies.length) {
+        tips.push('Aggiungi la terapia nella dashboard: migliora il monitoraggio e i promemoria.');
+    } else {
+        tips.push(`Terapia attiva: ${therapies.length} farmaco/i registrati. Mantieni orari regolari.`);
+    }
+
+    if (riskText?.toLowerCase().includes('sonno') || riskScore >= 0.34) {
+        tips.push('Priorita sonno: punta a 7-8 ore continuative stasera.');
+    }
+
+    tips.push('Condividi i trend con il medico tramite area consensi quando necessario.');
+    return tips.slice(0, 4);
+}
+
+function renderAiTips(tips) {
+    const aiTips = document.getElementById('aiTips');
+    if (!aiTips) return;
+    aiTips.innerHTML = tips.map((tip) => `<li class="muted">${tip}</li>`).join('');
+}
+
+function renderTherapyList(therapies, onDelete) {
+    const box = document.getElementById('therapyList');
+    if (!box) return;
+    if (!therapies.length) {
+        box.innerHTML = '<p class="muted">Nessun farmaco registrato.</p>';
+        return;
+    }
+    box.innerHTML = therapies.map((t) => `
+        <div class="card" style="padding:0.6rem; margin-bottom:0.5rem;">
+          <div style="display:flex; justify-content:space-between; gap:0.6rem; align-items:center;">
+            <div>
+              <strong>${t.medication_name}</strong>
+              <p class="muted">${t.dosage || 'Dosaggio non inserito'} ${t.intake_time ? `· ${t.intake_time}` : ''}</p>
+            </div>
+            <button class="btn btn-outline" data-therapy-delete="${t.id}">Elimina</button>
+          </div>
+        </div>
+    `).join('');
+    box.querySelectorAll('[data-therapy-delete]').forEach((btn) => {
+        btn.addEventListener('click', () => onDelete(btn.getAttribute('data-therapy-delete')));
+    });
+}
+
 async function initLandingDemo() {
     const apiLabel = document.getElementById('apiBaseLabel');
     const healthEl = document.getElementById('apiHealthStatus');
@@ -1066,13 +1150,62 @@ async function boot() {
         if (!user) return;
         document.getElementById('patientWelcome').textContent = user.username;
 
+        let lastRiskScore = 0;
+        let lastRiskMessage = '';
+
         try {
             const prediction = await api('/api/test');
             document.getElementById('lastRisk').textContent = prediction.output.risk_level.toUpperCase();
             document.getElementById('lastMessage').textContent = prediction.output.message;
+            lastRiskScore = Number(prediction.output.risk_score || 0);
+            lastRiskMessage = prediction.output.message || '';
         } catch {
             document.getElementById('lastRisk').textContent = 'N/D';
         }
+
+        try {
+            const history = await api('/api/risk-history');
+            renderRiskHistory(history);
+            if (history.length) {
+                lastRiskScore = Number(history[0].risk_score || lastRiskScore);
+            }
+        } catch {
+            renderRiskHistory([]);
+        }
+
+        const refreshTherapies = async () => {
+            try {
+                const therapies = await api('/api/therapies');
+                renderTherapyList(therapies, async (therapyId) => {
+                    await api(`/api/therapies/${therapyId}`, { method: 'DELETE' });
+                    await refreshTherapies();
+                });
+                renderAiTips(buildAiTips({ riskText: lastRiskMessage, riskScore: lastRiskScore, therapies }));
+            } catch {
+                renderTherapyList([], () => {});
+            }
+        };
+
+        const quickForm = document.getElementById('quickTherapyForm');
+        if (quickForm) {
+            quickForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const medication_name = document.getElementById('quickMedicationName').value.trim();
+                const dosage = document.getElementById('quickMedicationDose').value.trim();
+                const intake_time = document.getElementById('quickMedicationTime').value;
+                if (!medication_name) return;
+
+                await api('/api/therapies', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ medication_name, dosage: dosage || null, intake_time: intake_time || null }),
+                });
+                quickForm.reset();
+                await refreshTherapies();
+            });
+        }
+
+        await refreshTherapies();
     }
 
     if (page === 'consents') {
