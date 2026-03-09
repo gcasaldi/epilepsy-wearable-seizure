@@ -1023,6 +1023,78 @@ function openPrintableReport({ username, riskScore, riskMessage, therapies, even
     win.print();
 }
 
+function getAlertRules(username) {
+    return readDashboardList(username, 'alert_rules')[0] || {
+        risk_threshold: 67,
+        hr_threshold: 120,
+        hrv_threshold: 35,
+    };
+}
+
+function saveAlertRules(username, rules) {
+    writeDashboardList(username, 'alert_rules', [rules]);
+}
+
+function pushAlertEvent(username, message) {
+    const history = readDashboardList(username, 'alerts');
+    history.unshift({
+        id: `al-${Date.now()}`,
+        message,
+        when: new Date().toISOString(),
+    });
+    writeDashboardList(username, 'alerts', history.slice(0, 20));
+}
+
+function notifyAlert(message) {
+    if (!('Notification' in window)) {
+        alert(message);
+        return;
+    }
+    if (Notification.permission === 'granted') {
+        new Notification('Epiguard Alert', { body: message });
+        return;
+    }
+    if (Notification.permission !== 'denied') {
+        Notification.requestPermission().then((permission) => {
+            if (permission === 'granted') {
+                new Notification('Epiguard Alert', { body: message });
+            } else {
+                alert(message);
+            }
+        });
+        return;
+    }
+    alert(message);
+}
+
+function evaluateAlertRules({ username, rules, riskScore, hrCurrent, hrvCurrent }) {
+    const triggers = [];
+    if (typeof riskScore === 'number' && riskScore * 100 >= rules.risk_threshold) {
+        triggers.push(`Rischio oltre soglia (${(riskScore * 100).toFixed(1)}% >= ${rules.risk_threshold}%)`);
+    }
+    if (typeof hrCurrent === 'number' && hrCurrent >= rules.hr_threshold) {
+        triggers.push(`Battito alto (${hrCurrent} bpm >= ${rules.hr_threshold})`);
+    }
+    if (typeof hrvCurrent === 'number' && hrvCurrent <= rules.hrv_threshold) {
+        triggers.push(`HRV basso (${hrvCurrent} ms <= ${rules.hrv_threshold})`);
+    }
+
+    const statusEl = document.getElementById('alertStatusText');
+    if (!triggers.length) {
+        if (statusEl) {
+            statusEl.textContent = 'Nessun alert attivo con le soglie correnti.';
+        }
+        return;
+    }
+
+    const message = `Alert: ${triggers.join(' | ')}`;
+    pushAlertEvent(username, message);
+    if (statusEl) {
+        statusEl.textContent = `${message} (${new Date().toLocaleTimeString()})`;
+    }
+    notifyAlert(message);
+}
+
 function buildAiTips({ riskText, riskScore, therapies }) {
     const tips = [];
     if (riskScore >= 0.67) {
@@ -1375,6 +1447,7 @@ async function boot() {
         let medWith = null;
         let medWithout = null;
         const dashboardUser = user.username || 'user';
+        const alertRules = getAlertRules(dashboardUser);
 
         let therapiesState = [];
         let eventsState = readDashboardList(dashboardUser, 'events');
@@ -1529,6 +1602,37 @@ async function boot() {
             remindersState.forEach((r) => scheduleReminder(dashboardUser, r));
         };
 
+        const alertForm = document.getElementById('alertRulesForm');
+        if (alertForm) {
+            const riskInput = document.getElementById('alertRiskThreshold');
+            const hrInput = document.getElementById('alertHrThreshold');
+            const hrvInput = document.getElementById('alertHrvThreshold');
+            if (riskInput) riskInput.value = alertRules.risk_threshold;
+            if (hrInput) hrInput.value = alertRules.hr_threshold;
+            if (hrvInput) hrvInput.value = alertRules.hrv_threshold;
+
+            alertForm.addEventListener('submit', (event) => {
+                event.preventDefault();
+                const nextRules = {
+                    risk_threshold: Number(riskInput?.value || 67),
+                    hr_threshold: Number(hrInput?.value || 120),
+                    hrv_threshold: Number(hrvInput?.value || 35),
+                };
+                saveAlertRules(dashboardUser, nextRules);
+                const statusEl = document.getElementById('alertStatusText');
+                if (statusEl) {
+                    statusEl.textContent = 'Regole alert salvate.';
+                }
+            });
+        }
+
+        const testAlertBtn = document.getElementById('testAlertNowBtn');
+        if (testAlertBtn) {
+            testAlertBtn.addEventListener('click', () => {
+                notifyAlert('Test alert riuscito: notifiche e workflow attivi.');
+            });
+        }
+
         const reminderForm = document.getElementById('therapyReminderForm');
         if (reminderForm) {
             reminderForm.addEventListener('submit', (event) => {
@@ -1579,6 +1683,13 @@ async function boot() {
             hrvCurrent,
             medWith,
             medWithout,
+        });
+        evaluateAlertRules({
+            username: dashboardUser,
+            rules: getAlertRules(dashboardUser),
+            riskScore: lastRiskScore,
+            hrCurrent,
+            hrvCurrent,
         });
     }
 

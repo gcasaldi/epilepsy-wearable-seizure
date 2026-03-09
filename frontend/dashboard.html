@@ -86,6 +86,42 @@
     <section class="section">
       <div class="grid-2">
         <article class="card">
+          <h3>Centro Alert</h3>
+          <p class="muted">Alert personalizzati su rischio e parametri vitali, con notifiche browser.</p>
+          <form id="alertRulesForm" class="demo-form">
+            <label for="alertRiskThreshold">Soglia rischio (%)</label>
+            <input id="alertRiskThreshold" class="form-control" type="number" min="10" max="99" value="67">
+
+            <label for="alertHrThreshold">Soglia battito alto (bpm)</label>
+            <input id="alertHrThreshold" class="form-control" type="number" min="60" max="220" value="120">
+
+            <label for="alertHrvThreshold">Soglia HRV basso (ms)</label>
+            <input id="alertHrvThreshold" class="form-control" type="number" min="10" max="120" value="35">
+
+            <button type="submit" class="btn btn-primary">Salva regole alert</button>
+            <button type="button" id="testAlertNowBtn" class="btn btn-outline">Test alert ora</button>
+          </form>
+          <p id="alertStatusText" class="muted">Nessun alert attivo.</p>
+        </article>
+
+        <article class="card">
+          <h3>Collegamenti concreti (valori veri)</h3>
+          <p class="muted">Per dati reali continui, questa e` la sequenza consigliata:</p>
+          <ul class="demo-form" style="margin-left: 1rem; display:block;">
+            <li class="muted"><strong>1) Fitbit (subito):</strong> OAuth server-side con sync HR, HRV, sleep, activity.</li>
+            <li class="muted"><strong>2) Android Health Connect:</strong> bridge app mobile per invio sicuro verso backend.</li>
+            <li class="muted"><strong>3) Apple Health:</strong> bridge iOS (non accessibile direttamente da web app).</li>
+            <li class="muted"><strong>4) Garmin/Withings/Oura/Polar:</strong> onboarding progressivo API vendor.</li>
+          </ul>
+          <p class="muted">Nota: su GitHub Pages puro i collegamenti OAuth reali richiedono backend API online.</p>
+          <a href="/settings" class="btn btn-outline">Apri connessioni wearable</a>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="grid-2">
+        <article class="card">
           <h3>Reminder terapia</h3>
           <form id="therapyReminderForm" class="demo-form">
             <label for="reminderMedication">Farmaco</label>
