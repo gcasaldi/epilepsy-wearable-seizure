@@ -11,6 +11,11 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
     
+    <!-- Permesso per il Foreground Service (Necessario per monitoraggio continuo) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <!-- Health Connect permissions -->
     <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
@@ -44,13 +49,12 @@
             </intent-filter>
         </activity>
         
-        <!-- Foreground service per monitoraggio continuo (TODO: implementare) -->
-        <!--
+        <!-- Foreground service per monitoraggio continuo -->
         <service
             android:name=".service.MonitoringService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="health" />
-        -->
+
     </application>
 </manifest>

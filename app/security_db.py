@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Optional
 import uuid
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Time, create_engine
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Time, Float, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from app.config import settings
@@ -133,6 +133,28 @@ class Therapy(Base):
     dosage: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     intake_time: Mapped[Optional[datetime.time]] = mapped_column(Time, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+class BiometricRecord(Base):
+    __tablename__ = "biometric_records"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    hrv: Mapped[float] = mapped_column(Float)
+    heart_rate: Mapped[int] = mapped_column(Integer)
+    movement: Mapped[float] = mapped_column(Float)
+    sleep_hours: Mapped[float] = mapped_column(Float)
+    stress_index: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+class SeizureEvent(Base):
+    __tablename__ = "seizure_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(50)) # seizure, aura, suspicious
+    intensity: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
 class WearableConnection(Base):
