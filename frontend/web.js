@@ -1967,32 +1967,78 @@ async function boot() {
         }
 
         const apkDownloadLink = document.getElementById('apkDownloadLink');
+        const apkStatusMessage = document.getElementById('apkStatusMessage');
         const directApkUrl = `${API_BASE}${LOCAL_APK_PATH}`;
-        const fallbackStoreUrl = appStoreUrl();
-        const useDirectApk = !isStaticPagesApiBase();
+        const staticPagesMode = isStaticPagesApiBase();
+        let apkReady = false;
+        let apkTargetUrl = '';
+        let apkBuildHint = '';
+
+        try {
+            const apkStatus = await api('/app/apk/status');
+            apkReady = Boolean(apkStatus && apkStatus.available);
+            if (apkReady) {
+                apkTargetUrl = apkStatus.apk_url || directApkUrl;
+            } else {
+                apkBuildHint = apkStatus?.build_hint || '';
+            }
+        } catch {
+            apkReady = false;
+        }
+
+        const useDirectApk = apkReady;
         if (apkDownloadLink) {
-            apkDownloadLink.href = useDirectApk ? directApkUrl : fallbackStoreUrl;
-            apkDownloadLink.textContent = useDirectApk ? 'Scarica APK locale' : 'Apri store (QR senza 404)';
+            if (useDirectApk) {
+                apkDownloadLink.href = apkTargetUrl;
+                apkDownloadLink.textContent = 'Scarica APK locale (consigliato)';
+            } else {
+                apkDownloadLink.href = directApkUrl;
+                apkDownloadLink.textContent = 'Prova download APK locale';
+            }
         }
 
         const storeLink = document.getElementById('smartStoreLink');
         if (storeLink) {
-            storeLink.href = appStoreUrl();
+            if (useDirectApk) {
+                storeLink.href = apkTargetUrl;
+                storeLink.textContent = 'Apri download APK consigliato';
+            } else {
+                storeLink.href = appStoreUrl();
+                storeLink.textContent = 'Apri store consigliato';
+            }
         }
 
         const qrImage = document.getElementById('appQrImage');
         if (qrImage) {
-            qrImage.src = qrImageUrl(useDirectApk ? directApkUrl : fallbackStoreUrl);
+            if (useDirectApk) {
+                qrImage.src = qrImageUrl(apkTargetUrl);
+            } else {
+                qrImage.src = qrImageUrl(directApkUrl);
+            }
         }
 
         const apkQrHint = document.getElementById('apkQrHint');
         if (apkQrHint) {
-            if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            if (useDirectApk && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
                 apkQrHint.textContent = 'Per scansione da telefono usa l\'IP LAN del PC (es. http://192.168.x.x:8000/app).';
-            } else if (isStaticPagesApiBase()) {
-                apkQrHint.textContent = 'Su GitHub Pages senza backend API, il QR apre lo store (niente 404). Per APK diretto imposta qui sopra l\'URL backend reale.';
+            } else if (staticPagesMode) {
+                apkQrHint.textContent = 'Se sei su pagina statica, imposta qui sopra l\'URL backend reale (non github.io) per scaricare davvero l\'APK.';
+            } else if (!useDirectApk) {
+                apkQrHint.textContent = 'APK locale non confermato dal backend: il QR prova comunque il download diretto.';
             } else {
                 apkQrHint.textContent = 'QR configurato su backend API reale: usa questo codice per installazione e sync.';
+            }
+        }
+
+        if (apkStatusMessage) {
+            if (useDirectApk) {
+                apkStatusMessage.textContent = 'APK disponibile: usa il pulsante o il QR per installazione immediata.';
+            } else if (staticPagesMode) {
+                apkStatusMessage.textContent = 'Backend non configurato: il QR punta a /app/apk del dominio API attuale. Imposta un backend reale per il download.';
+            } else if (apkBuildHint) {
+                apkStatusMessage.textContent = `APK non trovato sul backend. Comando consigliato: ${apkBuildHint}`;
+            } else {
+                apkStatusMessage.textContent = 'Impossibile verificare lo stato APK dal backend in questo momento.';
             }
         }
 
@@ -2000,7 +2046,7 @@ async function boot() {
             const mobileNotice = document.getElementById('mobileRedirectNotice');
             if (mobileNotice) mobileNotice.classList.remove('hidden');
             setTimeout(() => {
-                window.location.href = appStoreUrl();
+                window.location.href = useDirectApk ? apkTargetUrl : directApkUrl;
             }, 1200);
         }
     }

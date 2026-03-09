@@ -112,8 +112,9 @@ auth_rate_limiter = AuthRateLimiter(
 )
 
 init_security_db()
-FRONTEND_DIR = Path("frontend")
-WEAR_APP_DIR = Path("wear-app")
+BASE_DIR = Path(__file__).resolve().parent.parent
+FRONTEND_DIR = BASE_DIR / "frontend"
+WEAR_APP_DIR = BASE_DIR / "wear-app"
 FITBIT_OAUTH_STATE: Dict[str, Dict[str, str]] = {}
 
 
@@ -287,6 +288,27 @@ async def app_download_apk():
         media_type="application/vnd.android.package-archive",
         filename=apk_path.name,
     )
+
+
+@app.get("/app/apk/status", include_in_schema=False)
+async def app_download_apk_status(request: Request):
+    apk_path = resolve_wear_apk()
+    if not apk_path:
+        return {
+            "available": False,
+            "apk_url": None,
+            "filename": None,
+            "message": "APK non trovato. Compila prima il progetto Wear OS (debug o release).",
+            "build_hint": "./wear-app/gradlew :app:assembleDebug",
+        }
+
+    return {
+        "available": True,
+        "apk_url": str(request.url_for("app_download_apk")),
+        "filename": apk_path.name,
+        "message": "APK disponibile per il download.",
+        "build_hint": None,
+    }
 
 
 @app.get("/dashboard", include_in_schema=False)
