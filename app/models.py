@@ -41,6 +41,26 @@ class RegisterRequest(BaseModel):
     password: str = Field(..., min_length=8, description="Password account")
 
 
+class PasswordRecoveryRequest(BaseModel):
+    """Richiesta avvio recovery password."""
+    email: str = Field(..., min_length=5, description="Email account")
+
+
+class PasswordRecoveryConfirmRequest(BaseModel):
+    """Conferma recovery password con token ricevuto."""
+    email: str = Field(..., min_length=5, description="Email account")
+    recovery_token: str = Field(..., min_length=12, description="Token temporaneo recovery")
+    new_password: str = Field(..., min_length=8, description="Nuova password account")
+
+
+class PasswordRecoveryResponse(BaseModel):
+    """Risposta recovery password."""
+    status: str
+    message: str
+    recovery_token: Optional[str] = None
+    expires_in_seconds: Optional[int] = None
+
+
 # --- Dati Fisiologici ---
 
 class PhysiologicalData(BaseModel):

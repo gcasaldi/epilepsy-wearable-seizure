@@ -7,6 +7,7 @@ import time as time_module
 import secrets
 import base64
 import json
+import hashlib
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -27,6 +28,7 @@ from app.models import (
     WearableConnectRequest, WearableConnectResponse, WearableDisconnectResponse,
     WearableProvidersResponse, WearableProviderStatus,
     LoginRequest, RegisterRequest,
+    PasswordRecoveryRequest, PasswordRecoveryConfirmRequest, PasswordRecoveryResponse,
 )
 from app.auth import (
     create_access_token,
@@ -37,7 +39,7 @@ from app.auth import (
 )
 from app.predictor import predictor
 from app.config import settings
-from app.security_db import SessionLocal, init_security_db, Therapy
+from app.security_db import SessionLocal, init_security_db, Therapy, PasswordRecoveryToken
 from app.security_service import (
     ensure_provider_organization_context,
     ensure_user_exists,
@@ -172,6 +174,10 @@ def exchange_fitbit_oauth_code(code: str, redirect_uri: str) -> dict | None:
     except Exception as exc:
         logger.warning("Fitbit token exchange unexpected error: %s", exc)
         return None
+
+
+def hash_recovery_token(raw_token: str) -> str:
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 
 # CORS
 app.add_middleware(
@@ -471,6 +477,112 @@ async def local_login(payload: LoginRequest, http_request: Request):
         expires_in=settings.access_token_expire_minutes * 60,
         username=subject,
     )
+
+
+@app.post(
+    "/auth/password-recovery/request",
+    response_model=PasswordRecoveryResponse,
+    tags=["Authentication"],
+    summary="Avvia recovery password account locale"
+)
+async def request_password_recovery(payload: PasswordRecoveryRequest, http_request: Request):
+    ip = http_request.client.host if http_request.client else "unknown"
+    limiter_key = f"password_recovery_request:{ip}"
+    auth_rate_limiter.check(limiter_key)
+
+    email = payload.email.strip().lower()
+    generic_message = "Se l'account esiste, riceverai un codice recovery valido 15 minuti."
+
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, email)
+        if not user:
+            return PasswordRecoveryResponse(status="accepted", message=generic_message)
+
+        token_raw = secrets.token_urlsafe(24)
+        token_hash = hash_recovery_token(token_raw)
+        expires_in_seconds = 15 * 60
+        expires_at = datetime.utcnow() + timedelta(seconds=expires_in_seconds)
+
+        # Invalida token recovery precedenti ancora attivi.
+        active_tokens = (
+            db.query(PasswordRecoveryToken)
+            .filter(
+                PasswordRecoveryToken.user_id == user.id,
+                PasswordRecoveryToken.used_at.is_(None),
+                PasswordRecoveryToken.expires_at > datetime.utcnow(),
+            )
+            .all()
+        )
+        for row in active_tokens:
+            row.used_at = datetime.utcnow()
+
+        db.add(
+            PasswordRecoveryToken(
+                user_id=user.id,
+                token_hash=token_hash,
+                expires_at=expires_at,
+            )
+        )
+        db.commit()
+        logger.info("Password recovery requested for %s", email)
+
+        # Modalita concreta senza SMTP: token restituito al chiamante per reset immediato.
+        return PasswordRecoveryResponse(
+            status="accepted",
+            message="Recovery avviato: usa il token per impostare una nuova password.",
+            recovery_token=token_raw,
+            expires_in_seconds=expires_in_seconds,
+        )
+    finally:
+        db.close()
+
+
+@app.post(
+    "/auth/password-recovery/confirm",
+    response_model=PasswordRecoveryResponse,
+    tags=["Authentication"],
+    summary="Conferma recovery e imposta nuova password"
+)
+async def confirm_password_recovery(payload: PasswordRecoveryConfirmRequest, http_request: Request):
+    ip = http_request.client.host if http_request.client else "unknown"
+    limiter_key = f"password_recovery_confirm:{ip}"
+    auth_rate_limiter.check(limiter_key)
+
+    email = payload.email.strip().lower()
+    token_hash = hash_recovery_token(payload.recovery_token.strip())
+
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, email)
+        if not user:
+            raise HTTPException(status_code=400, detail="Token recovery non valido o scaduto")
+
+        token_row = (
+            db.query(PasswordRecoveryToken)
+            .filter(
+                PasswordRecoveryToken.user_id == user.id,
+                PasswordRecoveryToken.token_hash == token_hash,
+                PasswordRecoveryToken.used_at.is_(None),
+                PasswordRecoveryToken.expires_at > datetime.utcnow(),
+            )
+            .first()
+        )
+        if not token_row:
+            auth_rate_limiter.register(limiter_key)
+            raise HTTPException(status_code=400, detail="Token recovery non valido o scaduto")
+
+        set_local_password(db, user.id, payload.new_password)
+        token_row.used_at = datetime.utcnow()
+        user.token_version += 1
+        db.commit()
+
+        return PasswordRecoveryResponse(
+            status="success",
+            message="Password aggiornata con successo. Effettua il login con la nuova password.",
+        )
+    finally:
+        db.close()
 
 
 @app.post(

@@ -1,6 +1,7 @@
 const TOKEN_KEY = 'authToken';
 const API_BASE_STORAGE_KEY = 'epiguard_api_base';
 const LOCAL_USERS_KEY = 'epiguard_local_users';
+const LOCAL_RECOVERY_TOKENS_KEY = 'epiguard_local_recovery_tokens';
 
 const ROUTE_TO_PAGE = {
     '/': 'index.html',
@@ -127,6 +128,18 @@ function setLocalUsers(users) {
     localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(users));
 }
 
+function getLocalRecoveryTokens() {
+    try {
+        return JSON.parse(localStorage.getItem(LOCAL_RECOVERY_TOKENS_KEY) || '[]');
+    } catch {
+        return [];
+    }
+}
+
+function setLocalRecoveryTokens(tokens) {
+    localStorage.setItem(LOCAL_RECOVERY_TOKENS_KEY, JSON.stringify(tokens));
+}
+
 function makeLocalToken(profile) {
     return `local.${btoa(JSON.stringify(profile))}`;
 }
@@ -237,6 +250,76 @@ async function localApiFallback(path, options = {}) {
             expires_in: 60 * 60 * 24,
             username: found.email,
             mode: 'local-pages-fallback',
+        };
+    }
+
+    if (path === '/auth/password-recovery/request' && method === 'POST') {
+        const email = String(payload.email || '').trim().toLowerCase();
+        const users = getLocalUsers();
+        const exists = users.some((u) => u.email === email)
+            || email === providerDemoEmail
+            || email === patientDemoEmail;
+
+        if (!exists) {
+            return {
+                status: 'accepted',
+                message: "Se l'account esiste, riceverai un codice recovery valido 15 minuti.",
+            };
+        }
+
+        const token = `rcv-${Math.random().toString(36).slice(2, 12)}-${Date.now().toString(36)}`;
+        const expiresInSeconds = 15 * 60;
+        const tokens = getLocalRecoveryTokens().filter((t) => t.email !== email || t.used_at);
+        tokens.push({
+            email,
+            token,
+            created_at: Date.now(),
+            expires_at: Date.now() + expiresInSeconds * 1000,
+            used_at: null,
+        });
+        setLocalRecoveryTokens(tokens);
+
+        return {
+            status: 'accepted',
+            message: 'Recovery avviato: usa il token per impostare una nuova password.',
+            recovery_token: token,
+            expires_in_seconds: expiresInSeconds,
+        };
+    }
+
+    if (path === '/auth/password-recovery/confirm' && method === 'POST') {
+        const email = String(payload.email || '').trim().toLowerCase();
+        const recoveryToken = String(payload.recovery_token || '').trim();
+        const newPassword = String(payload.new_password || '');
+
+        if (newPassword.length < 8) {
+            throw new Error('Password troppo corta (min 8 caratteri)');
+        }
+
+        const tokens = getLocalRecoveryTokens();
+        const tokenRow = tokens.find((t) => (
+            t.email === email
+            && t.token === recoveryToken
+            && !t.used_at
+            && Number(t.expires_at) > Date.now()
+        ));
+        if (!tokenRow) {
+            throw new Error('Token recovery non valido o scaduto');
+        }
+
+        const users = getLocalUsers();
+        const index = users.findIndex((u) => u.email === email);
+        if (index >= 0) {
+            users[index].password = newPassword;
+            setLocalUsers(users);
+        }
+
+        tokenRow.used_at = Date.now();
+        setLocalRecoveryTokens(tokens);
+
+        return {
+            status: 'success',
+            message: 'Password aggiornata con successo. Effettua il login con la nuova password.',
         };
     }
 
@@ -1045,6 +1128,34 @@ function pushAlertEvent(username, message) {
     writeDashboardList(username, 'alerts', history.slice(0, 20));
 }
 
+function renderAlertLog(username) {
+    const list = document.getElementById('alertLogList');
+    if (!list) return;
+
+    const rows = readDashboardList(username, 'alerts');
+    if (!rows.length) {
+        list.innerHTML = '<p class="muted">Nessun alert registrato.</p>';
+        return;
+    }
+
+    list.innerHTML = rows.slice(0, 8).map((row) => `
+        <div class="card" style="padding:0.55rem; margin-bottom:0.45rem;">
+            <p class="muted" style="margin:0 0 0.2rem 0;">${new Date(row.when).toLocaleString()}</p>
+            <p style="margin:0; color:#e0e0e0;">${row.message}</p>
+        </div>
+    `).join('');
+}
+
+function shouldEmitAlert(username, message) {
+    const last = readDashboardList(username, 'alert_last_emit')[0];
+    const now = Date.now();
+    if (last && last.message === message && (now - Number(last.when || 0)) < 10 * 60 * 1000) {
+        return false;
+    }
+    writeDashboardList(username, 'alert_last_emit', [{ message, when: now }]);
+    return true;
+}
+
 function notifyAlert(message) {
     if (!('Notification' in window)) {
         alert(message);
@@ -1088,7 +1199,15 @@ function evaluateAlertRules({ username, rules, riskScore, hrCurrent, hrvCurrent 
     }
 
     const message = `Alert: ${triggers.join(' | ')}`;
+    if (!shouldEmitAlert(username, message)) {
+        if (statusEl) {
+            statusEl.textContent = `Alert gia' registrato di recente: ${message}`;
+        }
+        return;
+    }
+
     pushAlertEvent(username, message);
+    renderAlertLog(username);
     if (statusEl) {
         statusEl.textContent = `${message} (${new Date().toLocaleTimeString()})`;
     }
@@ -1346,6 +1465,60 @@ async function boot() {
                     goTo('/dashboard');
                 } catch (err) {
                     showError(error, err.message || 'Registrazione non riuscita');
+                }
+            });
+        }
+
+        const recoveryInfo = document.getElementById('recoveryInfo');
+        const recoveryRequestForm = document.getElementById('passwordRecoveryRequestForm');
+        if (recoveryRequestForm) {
+            recoveryRequestForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const email = document.getElementById('recoveryEmail').value.trim();
+                showError(error, '');
+                if (recoveryInfo) recoveryInfo.textContent = '';
+
+                try {
+                    const res = await api('/auth/password-recovery/request', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email }),
+                    });
+
+                    if (recoveryInfo) {
+                        const tokenHint = res.recovery_token
+                            ? ` Token: ${res.recovery_token} (scade in circa ${Math.round((res.expires_in_seconds || 0) / 60)} min).`
+                            : '';
+                        recoveryInfo.textContent = `${res.message || 'Recovery avviato.'}${tokenHint}`;
+                    }
+                } catch (err) {
+                    showError(error, err.message || 'Richiesta recovery non riuscita');
+                }
+            });
+        }
+
+        const recoveryConfirmForm = document.getElementById('passwordRecoveryConfirmForm');
+        if (recoveryConfirmForm) {
+            recoveryConfirmForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                showError(error, '');
+
+                const email = document.getElementById('recoveryEmail').value.trim();
+                const recovery_token = document.getElementById('recoveryToken').value.trim();
+                const new_password = document.getElementById('recoveryNewPassword').value;
+
+                try {
+                    const res = await api('/auth/password-recovery/confirm', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, recovery_token, new_password }),
+                    });
+                    if (recoveryInfo) {
+                        recoveryInfo.textContent = res.message || 'Password aggiornata con successo.';
+                    }
+                    recoveryConfirmForm.reset();
+                } catch (err) {
+                    showError(error, err.message || 'Conferma recovery non riuscita');
                 }
             });
         }
@@ -1630,6 +1803,19 @@ async function boot() {
         if (testAlertBtn) {
             testAlertBtn.addEventListener('click', () => {
                 notifyAlert('Test alert riuscito: notifiche e workflow attivi.');
+            });
+        }
+
+        renderAlertLog(dashboardUser);
+        const clearAlertLogBtn = document.getElementById('clearAlertLogBtn');
+        if (clearAlertLogBtn) {
+            clearAlertLogBtn.addEventListener('click', () => {
+                writeDashboardList(dashboardUser, 'alerts', []);
+                renderAlertLog(dashboardUser);
+                const statusEl = document.getElementById('alertStatusText');
+                if (statusEl) {
+                    statusEl.textContent = 'Log alert azzerato.';
+                }
             });
         }
 

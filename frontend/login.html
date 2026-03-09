@@ -47,6 +47,22 @@
           <input id="registerPassword" class="form-control" type="password" minlength="8" required>
           <button type="submit" class="btn btn-outline" style="margin-top: 0.8rem;">Registrati e accedi</button>
         </form>
+        <hr style="margin: 1rem 0; border-color: rgba(255,255,255,0.1);">
+        <h3>Recovery credenziali</h3>
+        <p class="muted">Richiedi un token temporaneo e imposta una nuova password.</p>
+        <form id="passwordRecoveryRequestForm" class="demo-form" style="text-align: left; margin-top: 0.8rem;">
+          <label for="recoveryEmail">Email account</label>
+          <input id="recoveryEmail" class="form-control" type="email" required>
+          <button type="submit" class="btn btn-secondary" style="margin-top: 0.8rem;">Invia richiesta recovery</button>
+        </form>
+        <form id="passwordRecoveryConfirmForm" class="demo-form" style="text-align: left; margin-top: 0.8rem;">
+          <label for="recoveryToken">Token recovery</label>
+          <input id="recoveryToken" class="form-control" type="text" minlength="12" required>
+          <label for="recoveryNewPassword">Nuova password</label>
+          <input id="recoveryNewPassword" class="form-control" type="password" minlength="8" required>
+          <button type="submit" class="btn btn-outline" style="margin-top: 0.8rem;">Conferma nuova password</button>
+        </form>
+        <p id="recoveryInfo" class="muted"></p>
         <p id="loginError" class="muted"></p>
         <p class="muted">API backend corrente: <code id="loginApiBase"></code></p>
         <p class="muted">Se il login fallisce su Pages, usa URL con <code>?api_base=https://tuo-backend</code>.</p>
