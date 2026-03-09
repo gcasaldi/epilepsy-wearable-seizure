@@ -8,6 +8,8 @@ import secrets
 import base64
 import json
 import hashlib
+import csv
+from io import StringIO
 import math
 import urllib.parse
 import urllib.request
@@ -16,7 +18,7 @@ import logging
 from collections import defaultdict, deque
 from pathlib import Path
 from typing import Deque, Dict, List, Optional
-from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi import FastAPI, HTTPException, Depends, Request, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse
@@ -1518,20 +1520,25 @@ async def test_prediction(current_user: str = Depends(get_current_user)):
     }
 
 @app.get("/api/risk-history", response_model=List[RiskDataPoint], tags=["Dashboard"])
-async def get_risk_history(current_user: str = Depends(get_current_user)):
+async def get_risk_history(
+    start: Optional[datetime] = Query(default=None),
+    end: Optional[datetime] = Query(default=None),
+    limit: int = Query(default=24, ge=1, le=5000),
+    current_user: str = Depends(get_current_user),
+):
     db = SessionLocal()
     try:
         user = get_user_by_email(db, current_user)
         if not user:
             raise HTTPException(status_code=404, detail="Utente non trovato")
 
-        rows = (
-            db.query(BiometricRecord)
-            .filter(BiometricRecord.user_id == user.id)
-            .order_by(BiometricRecord.timestamp.desc())
-            .limit(24)
-            .all()
-        )
+        query = db.query(BiometricRecord).filter(BiometricRecord.user_id == user.id)
+        if start is not None:
+            query = query.filter(BiometricRecord.timestamp >= start)
+        if end is not None:
+            query = query.filter(BiometricRecord.timestamp <= end)
+
+        rows = query.order_by(BiometricRecord.timestamp.desc()).limit(limit).all()
         if rows:
             points = []
             for row in rows:
@@ -1541,12 +1548,66 @@ async def get_risk_history(current_user: str = Depends(get_current_user)):
     finally:
         db.close()
 
+    if start is not None or end is not None:
+        return []
+
     # Fallback demo se non ci sono ancora dati sync.
     now = datetime.now()
     return [
         RiskDataPoint(timestamp=now - timedelta(hours=i), risk_score=max(0, 0.5 + i * 0.1 - 0.2 * i * i + 0.01 * i * i * i))
         for i in range(24)
     ]
+
+
+@app.get("/api/export/risk-history.csv", tags=["Dashboard"])
+async def export_risk_history_csv(
+    start: Optional[datetime] = Query(default=None),
+    end: Optional[datetime] = Query(default=None),
+    current_user: str = Depends(get_current_user),
+):
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, current_user)
+        if not user:
+            raise HTTPException(status_code=404, detail="Utente non trovato")
+
+        query = db.query(BiometricRecord).filter(BiometricRecord.user_id == user.id)
+        if start is not None:
+            query = query.filter(BiometricRecord.timestamp >= start)
+        if end is not None:
+            query = query.filter(BiometricRecord.timestamp <= end)
+
+        rows = query.order_by(BiometricRecord.timestamp.asc()).all()
+
+        out = StringIO()
+        writer = csv.writer(out)
+        writer.writerow(["timestamp", "risk_score", "heart_rate", "hrv", "movement", "sleep_hours", "stress_index"])
+
+        for row in rows:
+            risk_score = max(0.02, min(0.98, 0.62 - (row.hrv / 180) + (row.heart_rate - 70) / 180))
+            writer.writerow([
+                row.timestamp.isoformat(),
+                round(risk_score, 6),
+                row.heart_rate,
+                row.hrv,
+                row.movement,
+                row.sleep_hours,
+                row.stress_index if row.stress_index is not None else "",
+            ])
+
+        filename = "risk-history.csv"
+        if start or end:
+            start_tag = (start.isoformat() if start else "start")[:10]
+            end_tag = (end.isoformat() if end else "end")[:10]
+            filename = f"risk-history-{start_tag}-to-{end_tag}.csv"
+
+        return Response(
+            content=out.getvalue(),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    finally:
+        db.close()
 
 @app.get("/api/physiological-summary", tags=["Dashboard"])
 async def get_physiological_summary(current_user: str = Depends(get_current_user)):

@@ -99,6 +99,9 @@ function patchInternalLinks() {
 
 const API_BASE = resolveApiBase();
 let riskChart = null;
+let riskV2Chart = null;
+let physiologicalV2Chart = null;
+let medicationV2Chart = null;
 const reminderTimers = {};
 
 function isStaticPagesApiBase() {
@@ -1245,6 +1248,49 @@ function renderRiskHistory(items) {
     }).join('');
 }
 
+function readDateTimeLocalAsIso(value) {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '';
+    return parsed.toISOString();
+}
+
+function buildRangeQuery(startIso, endIso) {
+    const params = new URLSearchParams();
+    if (startIso) params.set('start', startIso);
+    if (endIso) params.set('end', endIso);
+    const query = params.toString();
+    return query ? `?${query}` : '';
+}
+
+function formatRangeLabel(startIso, endIso) {
+    const from = startIso ? new Date(startIso).toLocaleString() : 'inizio';
+    const to = endIso ? new Date(endIso).toLocaleString() : 'adesso';
+    return `${from} -> ${to}`;
+}
+
+function renderV2RiskHistory(items) {
+    const list = document.getElementById('v2HistoryList');
+    if (!list) return;
+    if (!items || !items.length) {
+        list.innerHTML = '<p class="muted">Nessun dato nello storico per l\'intervallo selezionato.</p>';
+        return;
+    }
+
+    list.innerHTML = items.map((item) => {
+        const pct = Math.round(Number(item.risk_score || 0) * 100);
+        const level = riskLabel(Number(item.risk_score || 0)).toLowerCase();
+        return `
+            <div class="card" style="padding:0.55rem; margin-bottom:0.45rem;">
+                <div style="display:flex; justify-content:space-between; gap:0.6rem; align-items:center;">
+                    <span class="muted">${new Date(item.timestamp).toLocaleString()}</span>
+                    <strong class="risk-${level}">${pct}%</strong>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
 function readDashboardList(username, key) {
     return readJsonStorage(userScopedKey(username, key), []);
 }
@@ -1336,7 +1382,7 @@ function renderReminderList(username, reminders, onDelete) {
     });
 }
 
-function openPrintableReport({ username, riskScore, riskMessage, therapies, events }) {
+function openPrintableReport({ username, riskScore, riskMessage, therapies, events, rangeLabel, historyRows }) {
     const win = window.open('', '_blank', 'noopener');
     if (!win) {
         alert('Popup bloccato: abilita popup per esportare il report PDF.');
@@ -1348,8 +1394,10 @@ function openPrintableReport({ username, riskScore, riskMessage, therapies, even
       <body style="font-family:Arial,sans-serif;padding:24px;">
         <h1>Report Paziente</h1>
         <p><strong>Utente:</strong> ${username}</p>
+        ${rangeLabel ? `<p><strong>Intervallo:</strong> ${rangeLabel}</p>` : ''}
         <p><strong>Rischio attuale:</strong> ${(riskScore * 100).toFixed(1)}% (${riskLabel(riskScore)})</p>
         <p><strong>Messaggio AI:</strong> ${riskMessage}</p>
+        ${Array.isArray(historyRows) && historyRows.length ? `<h2>Storico rischio</h2><ul>${historyRows.map((h) => `<li>${new Date(h.timestamp).toLocaleString()} - ${(Number(h.risk_score || 0) * 100).toFixed(1)}%</li>`).join('')}</ul>` : ''}
         <h2>Terapia</h2>
         <ul>${therapies.map((t) => `<li>${t.medication_name} ${t.dosage || ''} ${t.intake_time || ''}</li>`).join('')}</ul>
         <h2>Eventi clinici</h2>
@@ -2580,6 +2628,7 @@ async function boot() {
                     riskMessage: lastRiskMessage,
                     therapies: therapiesState,
                     events: eventsState,
+                    rangeLabel: 'Ultime 24h',
                 });
             });
         }
@@ -2610,6 +2659,203 @@ async function boot() {
             hrCurrent,
             hrvCurrent,
         });
+    }
+
+    if (page === 'dashboard-v2') {
+        const user = await requireAuth(['personal']);
+        if (!user) return;
+
+        const statusEl = document.getElementById('v2Status');
+        const startInput = document.getElementById('v2RangeStart');
+        const endInput = document.getElementById('v2RangeEnd');
+        const applyBtn = document.getElementById('v2ApplyRangeBtn');
+        const resetBtn = document.getElementById('v2ResetRangeBtn');
+        const exportCsvBtn = document.getElementById('v2ExportCsvBtn');
+        const exportPdfBtn = document.getElementById('v2ExportPdfBtn');
+        const logoutBtn = document.getElementById('logout-btn');
+
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', (event) => {
+                event.preventDefault();
+                clearSession();
+                goTo('/login');
+            });
+        }
+
+        const now = new Date();
+        const dayAgo = new Date(now.getTime() - 24 * 3600 * 1000);
+        if (startInput) startInput.value = dayAgo.toISOString().slice(0, 16);
+        if (endInput) endInput.value = now.toISOString().slice(0, 16);
+
+        let lastHistoryRows = [];
+        let lastRiskScore = 0;
+        let lastRiskMessage = 'Nessun dato';
+
+        const drawRiskChartV2 = (rows) => {
+            const canvas = document.getElementById('risk-chart');
+            if (!canvas || typeof Chart === 'undefined') return;
+            const labels = rows.map((d) => new Date(d.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            const values = rows.map((d) => Number(d.risk_score || 0));
+            if (riskV2Chart) riskV2Chart.destroy();
+            riskV2Chart = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Punteggio Rischio',
+                        data: values,
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        fill: true,
+                        tension: 0.3,
+                    }],
+                },
+                options: { responsive: true, scales: { y: { beginAtZero: true, max: 1 } } },
+            });
+        };
+
+        const drawPhysioChartV2 = async () => {
+            const data = await api('/api/physiological-summary');
+            document.getElementById('current-hr').textContent = Array.isArray(data.hr) && data.hr.length ? `${data.hr[data.hr.length - 1]} bpm` : 'N/D';
+            document.getElementById('current-hrv').textContent = Array.isArray(data.hrv) && data.hrv.length ? `${data.hrv[data.hrv.length - 1]} ms` : 'N/D';
+
+            const canvas = document.getElementById('physiological-chart');
+            if (!canvas || typeof Chart === 'undefined') return;
+            if (physiologicalV2Chart) physiologicalV2Chart.destroy();
+            physiologicalV2Chart = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: (data.labels || []).slice(),
+                    datasets: [
+                        { label: 'Battito Cardiaco (bpm)', data: (data.hr || []).slice(), borderColor: 'rgba(54, 162, 235, 1)', yAxisID: 'y' },
+                        { label: 'HRV (ms)', data: (data.hrv || []).slice(), borderColor: 'rgba(75, 192, 192, 1)', yAxisID: 'y1' },
+                    ],
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { type: 'linear', display: true, position: 'left' },
+                        y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false } },
+                    },
+                },
+            });
+        };
+
+        const drawMedicationChartV2 = async () => {
+            const data = await api('/api/medication-impact');
+            const canvas = document.getElementById('medication-impact-chart');
+            if (!canvas || typeof Chart === 'undefined') return;
+            if (medicationV2Chart) medicationV2Chart.destroy();
+            medicationV2Chart = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: data.labels || [],
+                    datasets: [
+                        { label: 'Rischio con Farmaco', data: data.with_medication || [], backgroundColor: 'rgba(75, 192, 192, 0.6)' },
+                        { label: 'Rischio senza Farmaco (stimato)', data: data.without_medication || [], backgroundColor: 'rgba(255, 99, 132, 0.6)' },
+                    ],
+                },
+                options: { responsive: true, scales: { y: { beginAtZero: true, max: 1 } } },
+            });
+        };
+
+        const loadRiskRange = async () => {
+            const startIso = readDateTimeLocalAsIso(startInput?.value || '');
+            const endIso = readDateTimeLocalAsIso(endInput?.value || '');
+            if (startIso && endIso && new Date(startIso) > new Date(endIso)) {
+                if (statusEl) statusEl.textContent = 'Intervallo non valido: la data di inizio supera la fine.';
+                return;
+            }
+            const query = buildRangeQuery(startIso, endIso);
+            const rows = await api(`/api/risk-history${query}`);
+            lastHistoryRows = Array.isArray(rows) ? rows : [];
+
+            renderV2RiskHistory(lastHistoryRows);
+            drawRiskChartV2(lastHistoryRows);
+
+            const last = lastHistoryRows.length ? lastHistoryRows[lastHistoryRows.length - 1] : null;
+            lastRiskScore = Number(last?.risk_score || 0);
+            lastRiskMessage = last ? `Ultimo rischio ${Math.round(lastRiskScore * 100)}%` : 'Nessun dato nel range selezionato';
+
+            const riskEl = document.getElementById('current-risk');
+            if (riskEl) riskEl.textContent = last ? `${(lastRiskScore * 100).toFixed(1)}%` : 'N/D';
+            if (statusEl) statusEl.textContent = `Storico aggiornato: ${lastHistoryRows.length} punti in ${formatRangeLabel(startIso, endIso)}.`;
+        };
+
+        if (applyBtn) {
+            applyBtn.addEventListener('click', async () => {
+                try {
+                    await loadRiskRange();
+                } catch (err) {
+                    if (statusEl) statusEl.textContent = `Errore caricamento storico: ${err.message}`;
+                }
+            });
+        }
+
+        if (resetBtn) {
+            resetBtn.addEventListener('click', async () => {
+                const resetNow = new Date();
+                const resetDayAgo = new Date(resetNow.getTime() - 24 * 3600 * 1000);
+                if (startInput) startInput.value = resetDayAgo.toISOString().slice(0, 16);
+                if (endInput) endInput.value = resetNow.toISOString().slice(0, 16);
+                try {
+                    await loadRiskRange();
+                } catch (err) {
+                    if (statusEl) statusEl.textContent = `Errore reset storico: ${err.message}`;
+                }
+            });
+        }
+
+        if (exportCsvBtn) {
+            exportCsvBtn.addEventListener('click', async () => {
+                try {
+                    const startIso = readDateTimeLocalAsIso(startInput?.value || '');
+                    const endIso = readDateTimeLocalAsIso(endInput?.value || '');
+                    const token = getToken();
+                    const query = buildRangeQuery(startIso, endIso);
+                    const response = await fetch(`${API_BASE}/api/export/risk-history.csv${query}`, {
+                        headers: token ? { Authorization: `Bearer ${token}` } : {},
+                    });
+                    if (!response.ok) {
+                        throw new Error(`Export non riuscito (${response.status})`);
+                    }
+                    const blob = await response.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'risk-history.csv';
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    URL.revokeObjectURL(url);
+                    if (statusEl) statusEl.textContent = `Export CSV completato per ${formatRangeLabel(startIso, endIso)}.`;
+                } catch (err) {
+                    if (statusEl) statusEl.textContent = `Errore export CSV: ${err.message}`;
+                }
+            });
+        }
+
+        if (exportPdfBtn) {
+            exportPdfBtn.addEventListener('click', () => {
+                const startIso = readDateTimeLocalAsIso(startInput?.value || '');
+                const endIso = readDateTimeLocalAsIso(endInput?.value || '');
+                openPrintableReport({
+                    username: user.username,
+                    riskScore: lastRiskScore,
+                    riskMessage: lastRiskMessage,
+                    therapies: [],
+                    events: [],
+                    rangeLabel: formatRangeLabel(startIso, endIso),
+                    historyRows: lastHistoryRows,
+                });
+            });
+        }
+
+        try {
+            await Promise.all([loadRiskRange(), drawPhysioChartV2(), drawMedicationChartV2()]);
+        } catch (err) {
+            if (statusEl) statusEl.textContent = `Errore inizializzazione dashboard avanzata: ${err.message}`;
+        }
     }
 
     if (page === 'consents') {
