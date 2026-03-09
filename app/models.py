@@ -99,6 +99,14 @@ class PhysiologicalData(BaseModel):
         }
 
 
+class ManualBiometricRequest(BaseModel):
+    """Inserimento manuale parametri quando la sync wearable non e` disponibile."""
+    heart_rate: int = Field(..., ge=30, le=220)
+    hrv: float = Field(..., ge=1, le=220)
+    sleep_hours: float = Field(..., ge=0, le=24)
+    movement: float = Field(..., ge=0)
+
+
 # --- Predizione Rischio ---
 
 class RiskPrediction(BaseModel):

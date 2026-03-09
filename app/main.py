@@ -30,6 +30,7 @@ from app.models import (
     WearableProvidersResponse, WearableProviderStatus,
     LoginRequest, RegisterRequest,
     PasswordRecoveryRequest, PasswordRecoveryConfirmRequest, PasswordRecoveryResponse,
+    ManualBiometricRequest,
 )
 from app.auth import (
     create_access_token,
@@ -1174,6 +1175,35 @@ async def get_physiological_summary(current_user: str = Depends(get_current_user
         "hrv": [55, 53, 50, 52, 49, 47, 45, 46, 48, 50, 51, 53],
         "labels": [(datetime.now() - timedelta(hours=i)).strftime("%H:%M") for i in range(12)],
     }
+
+
+@app.post("/api/biometric/manual", tags=["Dashboard"])
+async def add_manual_biometric_sample(payload: ManualBiometricRequest, current_user: str = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, current_user)
+        if not user:
+            raise HTTPException(status_code=404, detail="Utente non trovato")
+
+        row = BiometricRecord(
+            user_id=user.id,
+            hrv=payload.hrv,
+            heart_rate=payload.heart_rate,
+            movement=payload.movement,
+            sleep_hours=payload.sleep_hours,
+            stress_index=max(0.05, min(0.95, 0.65 - (payload.hrv / 180))),
+            timestamp=datetime.utcnow(),
+        )
+        db.add(row)
+        db.commit()
+
+        return {
+            "status": "success",
+            "message": "Valori manuali salvati correttamente.",
+            "timestamp": row.timestamp.isoformat(),
+        }
+    finally:
+        db.close()
 
 @app.get("/api/medication-impact", tags=["Dashboard"])
 async def get_medication_impact(current_user: str = Depends(get_current_user)):

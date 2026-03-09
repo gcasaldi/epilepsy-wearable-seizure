@@ -33,7 +33,7 @@ body {
 .container {
   max-width: 1400px;
   margin: 0 auto;
-  padding: 20px;
+  padding: 28px;
 }
 
 /* Futuristi Navbar */
@@ -91,7 +91,7 @@ body {
   background: var(--card-bg);
   border: 1px solid rgba(0, 242, 255, 0.1);
   border-radius: 12px;
-  padding: 20px;
+  padding: 24px;
   position: relative;
   overflow: hidden;
   transition: 0.3s;
@@ -254,7 +254,7 @@ textarea.form-control {
 }
 
 .section {
-  margin-top: 2rem;
+  margin-top: 2.6rem;
 }
 
 .hero {
@@ -283,7 +283,7 @@ textarea.form-control {
 .grid-2 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  gap: 1.35rem;
 }
 
 .grid-3 {
@@ -294,13 +294,26 @@ textarea.form-control {
 
 .demo-form {
   display: grid;
-  gap: 0.6rem;
+  gap: 0.78rem;
 }
 
 .demo-form label {
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   color: #b9bec8;
-  margin-top: 0.3rem;
+  margin-top: 0.45rem;
+}
+
+.page-head p {
+  margin-top: 0.45rem;
+}
+
+#dataSourceBadge {
+  display: inline-block;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid rgba(0, 242, 255, 0.4);
+  border-radius: 999px;
+  background: rgba(0, 242, 255, 0.08);
+  color: #c9f8ff;
 }
 
 .kpi-value {
@@ -331,7 +344,7 @@ textarea.form-control {
   .topbar-inner {
     flex-direction: column;
     align-items: flex-start;
-    gap: 0.7rem;
+    gap: 0.9rem;
   }
 
   .nav {
@@ -342,5 +355,9 @@ textarea.form-control {
   .grid-2,
   .grid-3 {
     grid-template-columns: 1fr;
+  }
+
+  .container {
+    padding: 15px;
   }
 }

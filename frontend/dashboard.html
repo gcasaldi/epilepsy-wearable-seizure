@@ -29,6 +29,7 @@
     <section class="page-head">
       <h1>Area Paziente</h1>
       <p class="muted">Benvenuto, <strong id="patientWelcome"></strong></p>
+      <p id="dataSourceBadge" class="muted" style="margin-top:0.55rem;"></p>
     </section>
 
     <section class="kpi">
@@ -51,6 +52,59 @@
           <ul id="aiTips" class="demo-form"></ul>
           <div id="aiDeepAnalysis" class="card" style="margin-top:0.8rem; padding:0.9rem;"></div>
           <a href="/dashboard-v2" class="btn btn-outline">Apri dashboard avanzata</a>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="grid-2">
+        <article class="card">
+          <h3>Valori manuali (fallback reale)</h3>
+          <p class="muted">Se lo smartwatch non sincronizza, inserisci i valori misurati da te: la AI li usera` subito per analisi e alert.</p>
+          <form id="manualBiometricForm" class="demo-form">
+            <label for="manualHeartRate">Heart Rate (bpm)</label>
+            <input id="manualHeartRate" class="form-control" type="number" min="30" max="220" value="72" required>
+
+            <label for="manualHrv">HRV (ms)</label>
+            <input id="manualHrv" class="form-control" type="number" min="1" max="220" value="50" required>
+
+            <label for="manualSleepHours">Sonno ultime 24h</label>
+            <input id="manualSleepHours" class="form-control" type="number" min="0" max="24" step="0.1" value="7.0" required>
+
+            <label for="manualMovement">Movimento/attivita`</label>
+            <input id="manualMovement" class="form-control" type="number" min="0" max="99999" step="0.1" value="110" required>
+
+            <button type="submit" class="btn btn-primary">Salva valori manuali</button>
+          </form>
+          <div style="display:flex; flex-wrap:wrap; gap:0.6rem; margin-top:0.75rem; align-items:center;">
+            <button id="bridgeBleAssistBtn" type="button" class="btn btn-outline">Bridge Bluetooth assistito</button>
+            <span id="bridgeBleStatus" class="muted">Bridge BLE non avviato.</span>
+          </div>
+          <p id="manualBiometricStatus" class="muted">Nessun inserimento manuale recente.</p>
+        </article>
+
+        <article class="card">
+          <h3>Diario crisi e benessere</h3>
+          <p class="muted">Registra una crisi, un'aura o una giornata difficile: ricevi un commento AI orientato al tuo benessere.</p>
+          <form id="diaryEntryForm" class="demo-form">
+            <label for="diaryWhen">Data/Ora</label>
+            <input id="diaryWhen" class="form-control" type="datetime-local">
+
+            <label for="diaryType">Tipo voce</label>
+            <select id="diaryType" class="form-control">
+              <option value="crisi">Crisi</option>
+              <option value="aura">Aura</option>
+              <option value="sintomo">Sintomo</option>
+              <option value="giornata_no">Giornata no</option>
+              <option value="miglioramento">Miglioramento</option>
+            </select>
+
+            <label for="diaryNotes">Dettagli (trigger, sintomi, contesto)</label>
+            <textarea id="diaryNotes" class="form-control" rows="3" placeholder="Es: poco sonno, stress alto, luci forti..."></textarea>
+
+            <button type="submit" class="btn btn-primary">Aggiungi al diario</button>
+          </form>
+          <div id="diaryList" class="demo-form" style="margin-top:0.7rem;"></div>
         </article>
       </div>
     </section>

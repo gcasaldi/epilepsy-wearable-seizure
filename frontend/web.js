@@ -585,6 +585,47 @@ async function localApiFallback(path, options = {}) {
         };
     }
 
+    if (path === '/api/biometric/manual' && method === 'POST') {
+        const profile = getLocalProfileFromToken();
+        if (!profile) throw new Error('Sessione non valida');
+
+        const heartRate = Number(payload.heart_rate);
+        const hrv = Number(payload.hrv);
+        const sleepHours = Number(payload.sleep_hours);
+        const movement = Number(payload.movement);
+
+        if (!Number.isFinite(heartRate) || !Number.isFinite(hrv) || !Number.isFinite(sleepHours) || !Number.isFinite(movement)) {
+            throw new Error('Valori manuali non validi');
+        }
+
+        const sample = {
+            timestamp: new Date().toISOString(),
+            heart_rate: Math.round(heartRate),
+            hrv: Number(hrv.toFixed(1)),
+            movement: Number(movement.toFixed(1)),
+            sleep_hours: Number(sleepHours.toFixed(2)),
+            stress_index: Number(Math.max(0.05, Math.min(0.95, 0.65 - (hrv / 180))).toFixed(3)),
+            source: 'manual',
+        };
+
+        const sampleKey = userBiometricSamplesKey(profile.email);
+        const rows = readJsonStorage(sampleKey, []);
+        rows.push(sample);
+        writeJsonStorage(sampleKey, rows.slice(-96));
+
+        writeJsonStorage(userScopedKey(profile.email, 'wearables_sync_meta'), {
+            last_sync_at: sample.timestamp,
+            connected_count: readJsonStorage(userScopedKey(profile.email, 'wearables'), []).length,
+            source: 'manual-entry',
+        });
+
+        return {
+            status: 'success',
+            message: 'Valori manuali salvati e inclusi nella dashboard.',
+            sample,
+        };
+    }
+
     if (path.startsWith('/api/wearable/connect/') && method === 'POST') {
         const profile = getLocalProfileFromToken();
         if (!profile) throw new Error('Sessione non valida');
@@ -1409,6 +1450,125 @@ function renderDeepAiAnalysis({
     `;
 }
 
+function setDataQualityBadge(username) {
+    const badge = document.getElementById('dataSourceBadge');
+    if (!badge) return;
+
+    const bleInfo = readJsonStorage(userScopedKey(username, 'bridge_ble_meta'), null);
+    const manualInfo = readJsonStorage(userScopedKey(username, 'manual_biometric_meta'), null);
+    const isStatic = isStaticPagesApiBase();
+    const now = Date.now();
+    const bleRecent = bleInfo?.last_bridge_at && (now - new Date(bleInfo.last_bridge_at).getTime()) < 48 * 3600 * 1000;
+    const manualRecent = manualInfo?.last_manual_at && (now - new Date(manualInfo.last_manual_at).getTime()) < 48 * 3600 * 1000;
+
+    if (bleRecent) {
+        badge.textContent = `Qualita dato: bridge BLE (${new Date(bleInfo.last_bridge_at).toLocaleString()})`;
+        return;
+    }
+
+    if (manualRecent) {
+        badge.textContent = `Qualita dato: manuale (${new Date(manualInfo.last_manual_at).toLocaleString()})`;
+        return;
+    }
+
+    if (!isStatic) {
+        badge.textContent = 'Qualita dato: reale API';
+        return;
+    }
+
+    badge.textContent = 'Qualita dato: simulazione demo';
+}
+
+function buildDiaryAiComment(entry, riskScore) {
+    const type = String(entry.type || '').toLowerCase();
+    const notes = String(entry.notes || '').toLowerCase();
+    if (type === 'crisi') {
+        return riskScore >= 0.67
+            ? 'Crisi in fase delicata: riduci stimoli, avvisa un caregiver e pianifica recupero nelle prossime ore.'
+            : 'Crisi registrata: idratazione, riposo e monitoraggio. Condividi la voce con il medico alla prossima visita.';
+    }
+    if (type === 'aura') {
+        return 'Aura annotata: interrompi attivita a rischio e cerca ambiente sicuro e tranquillo.';
+    }
+    if (notes.includes('stress') || notes.includes('ansia')) {
+        return 'AI benessere: inserisci 2 pause respiratorie oggi e riduci carico serale.';
+    }
+    if (notes.includes('sonno') || notes.includes('dorm')) {
+        return 'AI benessere: priorita sonno stanotte (7-8h) per stabilizzare il trend.';
+    }
+    return 'AI benessere: continua a tracciare i trigger, aiuta a capire pattern utili per stare meglio.';
+}
+
+function renderDiaryEntries(username, riskScore) {
+    const diaryList = document.getElementById('diaryList');
+    if (!diaryList) return;
+    const entries = readDashboardList(username, 'diary');
+    if (!entries.length) {
+        diaryList.innerHTML = '<p class="muted">Nessuna voce diario inserita.</p>';
+        return;
+    }
+    diaryList.innerHTML = entries.slice(0, 8).map((row) => `
+        <div class="card" style="padding:0.6rem; margin-bottom:0.5rem;">
+            <p class="muted" style="margin:0 0 0.2rem 0;">${new Date(row.when).toLocaleString()} · ${row.type}</p>
+            <p style="margin:0 0 0.35rem 0;">${row.notes || 'Nessun dettaglio.'}</p>
+            <p class="muted" style="margin:0;"><strong>AI:</strong> ${row.ai_comment || buildDiaryAiComment(row, riskScore)}</p>
+        </div>
+    `).join('');
+}
+
+async function startBleAssistedBridge(username) {
+    if (!navigator.bluetooth) {
+        throw new Error('Web Bluetooth non supportato su questo browser/dispositivo');
+    }
+
+    const device = await navigator.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: ['heart_rate', 'battery_service'],
+    });
+
+    let heartRate = null;
+    try {
+        const server = await device.gatt?.connect();
+        if (server) {
+            const service = await server.getPrimaryService('heart_rate');
+            const characteristic = await service.getCharacteristic('heart_rate_measurement');
+            const value = await characteristic.readValue();
+            const flags = value.getUint8(0);
+            heartRate = (flags & 0x1) ? value.getUint16(1, true) : value.getUint8(1);
+            server.disconnect();
+        }
+    } catch {
+        // Alcuni device non espongono HR via GATT browser: fallback guidato.
+    }
+
+    const fallbackHr = heartRate ?? Number(prompt('Inserisci HR rilevato sul dispositivo (bpm):', '72') || 72);
+    const hrv = Math.max(20, Math.min(95, Math.round(45 + (80 - Math.min(120, fallbackHr)) / 2)));
+    const sleep = Number(prompt('Ore di sonno ultime 24h (opzionale):', '7.0') || 7.0);
+    const movement = Number(prompt('Movimento/attivita (opzionale):', '120') || 120);
+
+    await api('/api/biometric/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            heart_rate: Number.isFinite(fallbackHr) ? fallbackHr : 72,
+            hrv,
+            sleep_hours: Number.isFinite(sleep) ? sleep : 7.0,
+            movement: Number.isFinite(movement) ? movement : 120,
+        }),
+    });
+
+    writeJsonStorage(userScopedKey(username, 'bridge_ble_meta'), {
+        device_name: device.name || 'BLE device',
+        last_bridge_at: new Date().toISOString(),
+        sample_hr: Number.isFinite(fallbackHr) ? fallbackHr : 72,
+    });
+
+    return {
+        deviceName: device.name || 'BLE device',
+        hr: Number.isFinite(fallbackHr) ? fallbackHr : 72,
+    };
+}
+
 function renderTherapyList(therapies, onDelete) {
     const box = document.getElementById('therapyList');
     if (!box) return;
@@ -1749,6 +1909,7 @@ async function boot() {
         let medWithout = null;
         const dashboardUser = user.username || 'user';
         const alertRules = getAlertRules(dashboardUser);
+        setDataQualityBadge(dashboardUser);
 
         let therapiesState = [];
         let eventsState = readDashboardList(dashboardUser, 'events');
@@ -1874,6 +2035,78 @@ async function boot() {
             renderAiTips(buildAiTips({ riskText: lastRiskMessage, riskScore: lastRiskScore, therapies: therapiesState }));
         };
 
+        const diaryForm = document.getElementById('diaryEntryForm');
+        if (diaryForm) {
+            diaryForm.addEventListener('submit', (event) => {
+                event.preventDefault();
+                const entry = {
+                    id: `dr-${Date.now()}`,
+                    when: document.getElementById('diaryWhen').value || new Date().toISOString(),
+                    type: document.getElementById('diaryType').value,
+                    notes: document.getElementById('diaryNotes').value.trim(),
+                };
+                entry.ai_comment = buildDiaryAiComment(entry, lastRiskScore);
+                const list = readDashboardList(dashboardUser, 'diary');
+                list.unshift(entry);
+                writeDashboardList(dashboardUser, 'diary', list.slice(0, 40));
+                diaryForm.reset();
+                renderDiaryEntries(dashboardUser, lastRiskScore);
+            });
+        }
+
+        const manualBiometricForm = document.getElementById('manualBiometricForm');
+        const manualBiometricStatus = document.getElementById('manualBiometricStatus');
+        if (manualBiometricForm) {
+            manualBiometricForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const heart_rate = Number(document.getElementById('manualHeartRate').value);
+                const hrv = Number(document.getElementById('manualHrv').value);
+                const sleep_hours = Number(document.getElementById('manualSleepHours').value);
+                const movement = Number(document.getElementById('manualMovement').value);
+
+                try {
+                    await api('/api/biometric/manual', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ heart_rate, hrv, sleep_hours, movement }),
+                    });
+                    writeJsonStorage(userScopedKey(dashboardUser, 'manual_biometric_meta'), {
+                        last_manual_at: new Date().toISOString(),
+                    });
+                    if (manualBiometricStatus) {
+                        manualBiometricStatus.textContent = 'Valori manuali salvati e attivi in dashboard.';
+                    }
+                    setDataQualityBadge(dashboardUser);
+                } catch (err) {
+                    if (manualBiometricStatus) {
+                        manualBiometricStatus.textContent = `Errore salvataggio valori: ${err.message}`;
+                    }
+                }
+            });
+        }
+
+        const bridgeBtn = document.getElementById('bridgeBleAssistBtn');
+        const bridgeStatus = document.getElementById('bridgeBleStatus');
+        if (bridgeBtn) {
+            bridgeBtn.addEventListener('click', async () => {
+                bridgeBtn.disabled = true;
+                if (bridgeStatus) bridgeStatus.textContent = 'Bridge BLE in corso...';
+                try {
+                    const out = await startBleAssistedBridge(dashboardUser);
+                    if (bridgeStatus) {
+                        bridgeStatus.textContent = `Bridge completato con ${out.deviceName} (HR ${out.hr} bpm).`;
+                    }
+                    setDataQualityBadge(dashboardUser);
+                } catch (err) {
+                    if (bridgeStatus) {
+                        bridgeStatus.textContent = `Bridge non riuscito: ${err.message}`;
+                    }
+                } finally {
+                    bridgeBtn.disabled = false;
+                }
+            });
+        }
+
         const clinicalForm = document.getElementById('clinicalEventForm');
         if (clinicalForm) {
             clinicalForm.addEventListener('submit', (event) => {
@@ -1998,6 +2231,7 @@ async function boot() {
             medWith,
             medWithout,
         });
+        renderDiaryEntries(dashboardUser, lastRiskScore);
         evaluateAlertRules({
             username: dashboardUser,
             rules: getAlertRules(dashboardUser),
