@@ -125,24 +125,46 @@ function setLocalUsers(users) {
     localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(users));
 }
 
-function makeLocalToken(email) {
-    return `local.${btoa(email)}`;
+function makeLocalToken(profile) {
+    return `local.${btoa(JSON.stringify(profile))}`;
 }
 
-function getLocalEmailFromToken() {
+function getLocalProfileFromToken() {
     const token = getToken();
     if (!token || !token.startsWith('local.')) return null;
     const encoded = token.split('.', 2)[1];
     try {
-        return atob(encoded);
+        return JSON.parse(atob(encoded));
     } catch {
         return null;
     }
 }
 
+function userScopedKey(email, suffix) {
+    return `epiguard_${suffix}_${email}`;
+}
+
+function readJsonStorage(key, fallback) {
+    try {
+        const value = localStorage.getItem(key);
+        return value ? JSON.parse(value) : fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+function writeJsonStorage(key, value) {
+    localStorage.setItem(key, JSON.stringify(value));
+}
+
 async function localApiFallback(path, options = {}) {
     const method = (options.method || 'GET').toUpperCase();
     const payload = parseJsonBody(options.body);
+
+    const providerDemoEmail = 'demo.ente@epilepsy.local';
+    const providerDemoPass = 'DemoEnte2026!';
+    const patientDemoEmail = 'demo.user@epilepsy.local';
+    const patientDemoPass = 'DemoUser2026!';
 
     if (path === '/auth/register' && method === 'POST') {
         const email = String(payload.email || '').trim().toLowerCase();
@@ -159,10 +181,11 @@ async function localApiFallback(path, options = {}) {
             throw new Error("Account gia' registrato");
         }
 
-        users.push({ email, password, created_at: new Date().toISOString() });
+        users.push({ email, password, account_type: 'personal', created_at: new Date().toISOString() });
         setLocalUsers(users);
+        const profile = { email, account_type: 'personal', provider_status: null };
         return {
-            access_token: makeLocalToken(email),
+            access_token: makeLocalToken(profile),
             token_type: 'bearer',
             expires_in: 60 * 60 * 24,
             username: email,
@@ -173,13 +196,41 @@ async function localApiFallback(path, options = {}) {
     if (path === '/auth/login' && method === 'POST') {
         const username = String(payload.username || '').trim().toLowerCase();
         const password = String(payload.password || '');
+
+        if (username === providerDemoEmail && password === providerDemoPass) {
+            const profile = { email: providerDemoEmail, account_type: 'provider', provider_status: 'provider_verified' };
+            return {
+                access_token: makeLocalToken(profile),
+                token_type: 'bearer',
+                expires_in: 60 * 60 * 24,
+                username: providerDemoEmail,
+                mode: 'local-pages-fallback',
+            };
+        }
+
+        if (username === patientDemoEmail && password === patientDemoPass) {
+            const profile = { email: patientDemoEmail, account_type: 'personal', provider_status: null };
+            return {
+                access_token: makeLocalToken(profile),
+                token_type: 'bearer',
+                expires_in: 60 * 60 * 24,
+                username: patientDemoEmail,
+                mode: 'local-pages-fallback',
+            };
+        }
+
         const users = getLocalUsers();
         const found = users.find((u) => u.email === username && u.password === password);
         if (!found) {
             throw new Error('Credenziali non valide');
         }
+        const profile = {
+            email: found.email,
+            account_type: found.account_type || 'personal',
+            provider_status: found.account_type === 'provider' ? 'provider_verified' : null,
+        };
         return {
-            access_token: makeLocalToken(found.email),
+            access_token: makeLocalToken(profile),
             token_type: 'bearer',
             expires_in: 60 * 60 * 24,
             username: found.email,
@@ -188,18 +239,224 @@ async function localApiFallback(path, options = {}) {
     }
 
     if (path === '/api/me' && method === 'GET') {
-        const email = getLocalEmailFromToken();
-        if (!email) {
+        const profile = getLocalProfileFromToken();
+        if (!profile) {
             throw new Error('Sessione non valida');
         }
         return {
-            username: email,
-            account_type: 'personal',
-            provider_status: null,
+            username: profile.email,
+            account_type: profile.account_type || 'personal',
+            provider_status: profile.provider_status || null,
             account_active: true,
             authenticated: true,
             timestamp: new Date().toISOString(),
             mode: 'local-pages-fallback',
+        };
+    }
+
+    if (path === '/api/provider/status' && method === 'GET') {
+        const profile = getLocalProfileFromToken();
+        if (!profile) throw new Error('Sessione non valida');
+        const isProvider = profile.account_type === 'provider';
+        return {
+            username: profile.email,
+            account_type: profile.account_type || 'personal',
+            provider_status: isProvider ? 'provider_verified' : null,
+            verified: isProvider,
+            organization: isProvider
+                ? {
+                    id: 'demo-org-local',
+                    legal_name: 'Demo Ente Locale',
+                    status: 'verified',
+                    domain: profile.email.split('@')[1] || 'local',
+                }
+                : null,
+            role: isProvider ? 'admin' : null,
+        };
+    }
+
+    if (path === '/api/consents' && method === 'GET') {
+        return {
+            count: 1,
+            items: [
+                {
+                    consent_id: 'consent-local-demo',
+                    organization_id: 'demo-org-local',
+                    organization_name: 'Demo Clinica Locale',
+                    organization_status: 'verified',
+                    scope: { vitals: true, events: true, therapy: true },
+                    version: 1,
+                    granted_at: new Date().toISOString(),
+                },
+            ],
+        };
+    }
+
+    if (path === '/api/test' && method === 'GET') {
+        const profile = getLocalProfileFromToken();
+        if (!profile) throw new Error('Sessione non valida');
+        const input = {
+            hrv: 52,
+            heart_rate: 74,
+            movement: 120,
+            sleep_hours: 7.3,
+            medication_taken: true,
+        };
+        const output = computeDemoRisk(input);
+        return {
+            user: profile.email,
+            input,
+            output,
+            note: 'Local demo prediction',
+        };
+    }
+
+    if (path === '/api/risk-history' && method === 'GET') {
+        const now = Date.now();
+        const rows = [];
+        for (let i = 0; i < 24; i += 1) {
+            const raw = 0.45 + 0.22 * Math.sin(i / 4.2) + 0.12 * Math.cos(i / 3.1);
+            rows.push({
+                timestamp: new Date(now - i * 3600 * 1000).toISOString(),
+                risk_score: Math.max(0.05, Math.min(0.95, raw)),
+            });
+        }
+        return rows;
+    }
+
+    if (path === '/api/physiological-summary' && method === 'GET') {
+        const labels = [];
+        const hr = [];
+        const hrv = [];
+        for (let i = 11; i >= 0; i -= 1) {
+            labels.push(new Date(Date.now() - i * 3600 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            hr.push(68 + Math.round(8 * Math.sin(i / 2.5)));
+            hrv.push(48 + Math.round(7 * Math.cos(i / 3.2)));
+        }
+        return { hr, hrv, labels };
+    }
+
+    if (path === '/api/medication-impact' && method === 'GET') {
+        return {
+            with_medication: [0.29, 0.25, 0.21, 0.17, 0.14],
+            without_medication: [0.58, 0.55, 0.49, 0.46, 0.42],
+            labels: ['Giorno 1', 'Giorno 2', 'Giorno 3', 'Giorno 4', 'Giorno 5'],
+        };
+    }
+
+    if (path === '/api/account' && method === 'DELETE') {
+        return {
+            status: 'deleted',
+            revoked_consents: 1,
+            revoked_caregiver_links: 0,
+            message: 'Account locale disattivato (demo).',
+        };
+    }
+
+    if (path === '/api/therapies' && method === 'GET') {
+        const profile = getLocalProfileFromToken();
+        if (!profile) throw new Error('Sessione non valida');
+        return readJsonStorage(userScopedKey(profile.email, 'therapies'), []);
+    }
+
+    if (path === '/api/therapies' && method === 'POST') {
+        const profile = getLocalProfileFromToken();
+        if (!profile) throw new Error('Sessione non valida');
+        const key = userScopedKey(profile.email, 'therapies');
+        const list = readJsonStorage(key, []);
+        const row = {
+            id: `th-${Date.now()}`,
+            medication_name: String(payload.medication_name || '').trim(),
+            dosage: payload.dosage || null,
+            intake_time: payload.intake_time || null,
+        };
+        if (!row.medication_name) throw new Error('Nome farmaco obbligatorio');
+        list.push(row);
+        writeJsonStorage(key, list);
+        return row;
+    }
+
+    if (path.startsWith('/api/therapies/') && method === 'DELETE') {
+        const profile = getLocalProfileFromToken();
+        if (!profile) throw new Error('Sessione non valida');
+        const therapyId = path.split('/').pop();
+        const key = userScopedKey(profile.email, 'therapies');
+        const list = readJsonStorage(key, []);
+        writeJsonStorage(key, list.filter((t) => t.id !== therapyId));
+        return { status: 'success', message: 'Terapia eliminata' };
+    }
+
+    if (path === '/api/wearable/providers' && method === 'GET') {
+        const profile = getLocalProfileFromToken();
+        if (!profile) throw new Error('Sessione non valida');
+        const connected = readJsonStorage(userScopedKey(profile.email, 'wearables'), []);
+        const catalog = [
+            ['fitbit', 'Fitbit', 'watch+fitness', 'oauth'],
+            ['garmin_connect', 'Garmin Connect', 'watch+fitness', 'oauth'],
+            ['samsung_health', 'Samsung Health', 'watch+phone', 'bridge'],
+            ['health_connect', 'Android Health Connect', 'phone-hub', 'bridge'],
+            ['apple_health', 'Apple Health', 'phone-hub', 'bridge'],
+            ['oura', 'Oura', 'ring+sleep', 'oauth'],
+            ['polar_flow', 'Polar Flow', 'watch+fitness', 'oauth'],
+            ['withings', 'Withings', 'wearable+health', 'oauth'],
+            ['strava', 'Strava', 'activity', 'oauth'],
+            ['google_fit', 'Google Fit (legacy)', 'fitness', 'legacy'],
+        ];
+        const items = catalog.map(([provider_key, provider_name, category, supported_mode]) => ({
+            provider_key,
+            provider_name,
+            category,
+            supported_mode,
+            connected: connected.includes(provider_key),
+            status: connected.includes(provider_key) ? 'connected' : 'not_connected',
+            connected_at: connected.includes(provider_key) ? new Date().toISOString() : null,
+            last_sync_at: null,
+            message: connected.includes(provider_key) ? 'Collegato (demo)' : 'Non collegato',
+        }));
+        return {
+            total: items.length,
+            connected: items.filter((i) => i.connected).length,
+            items,
+        };
+    }
+
+    if (path.startsWith('/api/wearable/connect/') && method === 'POST') {
+        const profile = getLocalProfileFromToken();
+        if (!profile) throw new Error('Sessione non valida');
+        const providerKey = path.split('/').pop();
+        const key = userScopedKey(profile.email, 'wearables');
+        const connected = readJsonStorage(key, []);
+        if (!connected.includes(providerKey)) {
+            connected.push(providerKey);
+            writeJsonStorage(key, connected);
+        }
+        return {
+            provider_key: providerKey,
+            mode: payload.mode || 'demo',
+            status: 'connected',
+            message: 'Provider collegato in demo locale.',
+        };
+    }
+
+    if (path.startsWith('/api/wearable/connect/') && method === 'DELETE') {
+        const profile = getLocalProfileFromToken();
+        if (!profile) throw new Error('Sessione non valida');
+        const providerKey = path.split('/').pop();
+        const key = userScopedKey(profile.email, 'wearables');
+        const connected = readJsonStorage(key, []);
+        writeJsonStorage(key, connected.filter((p) => p !== providerKey));
+        return {
+            provider_key: providerKey,
+            status: 'disconnected',
+            message: 'Provider disconnesso.',
+        };
+    }
+
+    if (path === '/api/predict' && method === 'POST') {
+        const result = computeDemoRisk(payload);
+        return {
+            ...result,
+            timestamp: new Date().toISOString(),
         };
     }
 
