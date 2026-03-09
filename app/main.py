@@ -1072,6 +1072,25 @@ async def predict_seizure_risk(
     """
     try:
         logger.info(f"[{current_user}] Richiesta predizione - HRV={data.hrv}, HR={data.heart_rate}")
+
+        db = SessionLocal()
+        try:
+            user = get_user_by_email(db, current_user)
+            if user:
+                db.add(
+                    BiometricRecord(
+                        user_id=user.id,
+                        hrv=float(data.hrv),
+                        heart_rate=int(data.heart_rate),
+                        movement=float(data.movement),
+                        sleep_hours=float(data.sleep_hours),
+                        stress_index=data.stress_index,
+                        timestamp=data.timestamp or datetime.utcnow(),
+                    )
+                )
+                db.commit()
+        finally:
+            db.close()
         
         prediction = predictor.predict(data)
         

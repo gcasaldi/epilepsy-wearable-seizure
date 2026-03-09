@@ -45,6 +45,12 @@
         <img id="appQrImage" class="qr-image" alt="QR code download app">
         <p class="muted" style="margin-top:10px;">Scansiona per download rapido dell'APK da questo server.</p>
         <p id="apkQrHint" class="muted" style="margin-top:8px;"></p>
+        <p class="muted" style="margin-top:8px;">Backend API corrente: <code id="appDownloadApiBaseInfo"></code></p>
+        <form id="appDownloadApiBaseForm" class="demo-form" style="margin-top:0.8rem;">
+          <label for="appDownloadApiBaseInput">Imposta backend API per APK/sync reali</label>
+          <input id="appDownloadApiBaseInput" class="form-control" type="url" placeholder="https://tuo-backend.example.com">
+          <button type="submit" class="btn btn-outline">Salva backend API</button>
+        </form>
       </article>
     </section>
 

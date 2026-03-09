@@ -1924,6 +1924,33 @@ async function boot() {
     }
 
     if (page === 'app-download') {
+        const apiBaseInfo = document.getElementById('appDownloadApiBaseInfo');
+        const apiBaseInput = document.getElementById('appDownloadApiBaseInput');
+        const apiBaseForm = document.getElementById('appDownloadApiBaseForm');
+        if (apiBaseInfo) {
+            apiBaseInfo.textContent = API_BASE;
+        }
+        if (apiBaseInput) {
+            apiBaseInput.value = localStorage.getItem(API_BASE_STORAGE_KEY) || '';
+        }
+        if (apiBaseForm) {
+            apiBaseForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const raw = (apiBaseInput?.value || '').trim();
+                if (!raw) {
+                    localStorage.removeItem(API_BASE_STORAGE_KEY);
+                    window.location.reload();
+                    return;
+                }
+                if (!/^https?:\/\//i.test(raw)) {
+                    alert('Inserisci un URL backend valido (http:// o https://).');
+                    return;
+                }
+                localStorage.setItem(API_BASE_STORAGE_KEY, raw.replace(/\/$/, ''));
+                window.location.reload();
+            });
+        }
+
         const iosStoreLink = document.getElementById('iosStoreLink');
         if (iosStoreLink) {
             iosStoreLink.href = IOS_STORE_URL;
@@ -1955,8 +1982,14 @@ async function boot() {
         }
 
         const apkQrHint = document.getElementById('apkQrHint');
-        if (apkQrHint && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-            apkQrHint.textContent = 'Per scansione da telefono usa l\'IP LAN del PC (es. http://192.168.x.x:8000/app).';
+        if (apkQrHint) {
+            if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                apkQrHint.textContent = 'Per scansione da telefono usa l\'IP LAN del PC (es. http://192.168.x.x:8000/app).';
+            } else if (isStaticPagesApiBase()) {
+                apkQrHint.textContent = 'Se sei su GitHub Pages, imposta qui sopra l\'URL del backend API reale: il QR usera` quel backend per scaricare APK e sincronizzare dati.';
+            } else {
+                apkQrHint.textContent = 'QR configurato su backend API reale: usa questo codice per installazione e sync.';
+            }
         }
 
         if (isMobileBrowser()) {
