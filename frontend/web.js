@@ -2357,6 +2357,30 @@ async function boot() {
         await renderWearableProviders();
         bindWearableSyncButton();
         await renderWearableSyncStatus();
+
+        const bleBtn = document.getElementById('wearableBleAssistBtn');
+        const bleStatus = document.getElementById('wearableBleAssistStatus');
+        if (bleBtn) {
+            bleBtn.addEventListener('click', async () => {
+                bleBtn.disabled = true;
+                if (bleStatus) {
+                    bleStatus.textContent = 'Apertura selettore Bluetooth...';
+                }
+                try {
+                    const out = await startBleAssistedBridge(user.username || 'user');
+                    if (bleStatus) {
+                        bleStatus.textContent = `Bridge BLE completato con ${out.deviceName} (HR ${out.hr} bpm).`;
+                    }
+                    await renderWearableSyncStatus();
+                } catch (err) {
+                    if (bleStatus) {
+                        bleStatus.textContent = `Bridge BLE non riuscito: ${err.message}`;
+                    }
+                } finally {
+                    bleBtn.disabled = false;
+                }
+            });
+        }
     }
 
     if (page === 'provider-gate') {
