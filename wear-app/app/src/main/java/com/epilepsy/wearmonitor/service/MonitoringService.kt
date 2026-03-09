@@ -111,6 +111,10 @@ class MonitoringService : Service() {
             fall_detected = snapshot.fallDetected
         )
 
+        runCatching {
+            apiClient.sendTelemetry(this, data)
+        }
+
         val remote = runCatching { apiClient.predict(this, data) }.getOrNull()
         val riskScore = remote?.risk_score ?: computeLocalRiskScore(snapshot.heartRate, snapshot.hrv, snapshot.sleepHours)
         val riskLevel = remote?.risk_level ?: when {

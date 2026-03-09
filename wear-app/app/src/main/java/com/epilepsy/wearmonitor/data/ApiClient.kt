@@ -52,6 +52,12 @@ interface EpilepsyApi {
         @Header("Authorization") token: String,
         @Body data: PhysiologicalData
     ): PredictionResponse
+
+    @POST("api/telemetry")
+    suspend fun telemetry(
+        @Header("Authorization") token: String,
+        @Body data: PhysiologicalData
+    ): Map<String, Any>
 }
 
 class ApiClient {
@@ -88,6 +94,14 @@ class ApiClient {
     suspend fun predict(context: Context, data: PhysiologicalData): PredictionResponse {
         val token = getStoredToken(context) ?: throw Exception("Not logged in")
         return api.predict("Bearer $token", data)
+    }
+
+    suspend fun sendTelemetry(context: Context, data: PhysiologicalData): Boolean {
+        val token = getStoredToken(context) ?: return false
+        return runCatching {
+            api.telemetry("Bearer $token", data)
+            true
+        }.getOrDefault(false)
     }
     
     private suspend fun saveToken(context: Context, token: String) {

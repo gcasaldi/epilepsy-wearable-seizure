@@ -1106,6 +1106,43 @@ async def predict_seizure_risk(
         )
 
 
+@app.post(
+    "/api/telemetry",
+    tags=["Prediction"],
+    summary="Ingestione telemetria watch/app (PROTETTO)"
+)
+async def ingest_telemetry(
+    data: PhysiologicalData,
+    current_user: str = Depends(get_current_user)
+):
+    """Persistenza diretta dati fisiologici per dashboard/storico."""
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, current_user)
+        if not user:
+            raise HTTPException(status_code=404, detail="Utente non trovato")
+
+        row = BiometricRecord(
+            user_id=user.id,
+            hrv=float(data.hrv),
+            heart_rate=int(data.heart_rate),
+            movement=float(data.movement),
+            sleep_hours=float(data.sleep_hours),
+            stress_index=data.stress_index,
+            timestamp=data.timestamp or datetime.utcnow(),
+        )
+        db.add(row)
+        db.commit()
+
+        return {
+            "status": "success",
+            "message": "Telemetria registrata",
+            "timestamp": row.timestamp.isoformat(),
+        }
+    finally:
+        db.close()
+
+
 @app.get(
     "/api/test",
     tags=["Prediction"],
