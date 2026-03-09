@@ -31,6 +31,62 @@
     </section>
 
     <section class="section">
+      <h2>Demo pubblica immediata</h2>
+      <div class="grid-2">
+        <article class="card">
+          <h3>Stato integrazione backend</h3>
+          <p class="muted">API base attiva: <code id="apiBaseLabel">N/D</code></p>
+          <p id="apiHealthStatus" class="muted">Verifica connessione backend...</p>
+          <p class="muted">Suggerimento: aggiungi <code>?api_base=https://tuo-backend</code> all'URL della pagina.</p>
+        </article>
+        <article class="card">
+          <h3>Bridge smartwatch (beta web)</h3>
+          <p class="muted">Prova connessione via Web Bluetooth per lettura battito cardiaco.</p>
+          <button id="demoConnectWatchBtn" class="btn btn-outline">Collega smartwatch</button>
+          <p id="demoWatchStatus" class="muted">In attesa di connessione...</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Simulatore rischio crisi (demo)</h2>
+      <div class="grid-2">
+        <article class="card">
+          <form id="demoRiskForm" class="demo-form">
+            <label for="demoHrv">HRV (ms)</label>
+            <input id="demoHrv" class="form-control" type="number" min="0" max="200" step="0.1" value="52">
+
+            <label for="demoHr">Battito cardiaco (bpm)</label>
+            <input id="demoHr" class="form-control" type="number" min="30" max="220" step="1" value="74">
+
+            <label for="demoMovement">Movimento</label>
+            <input id="demoMovement" class="form-control" type="number" min="0" step="1" value="120">
+
+            <label for="demoSleep">Ore sonno</label>
+            <input id="demoSleep" class="form-control" type="number" min="0" max="24" step="0.1" value="7.3">
+
+            <label for="demoMedication">Farmaco assunto</label>
+            <select id="demoMedication" class="form-control">
+              <option value="true" selected>Si</option>
+              <option value="false">No</option>
+            </select>
+
+            <button type="submit" class="btn btn-primary">Calcola rischio demo</button>
+          </form>
+        </article>
+
+        <article class="card">
+          <h3>Output simulazione</h3>
+          <p class="muted">Rischio stimato</p>
+          <p id="demoRiskScore" class="kpi-value">--</p>
+          <p id="demoRiskLevel" class="muted">Livello: N/D</p>
+          <p id="demoRiskMessage" class="muted">Inserisci i parametri e avvia il calcolo.</p>
+          <p class="muted">Nota: questa e` una simulazione web pubblica, non una diagnosi medica.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
       <h2>Come funziona</h2>
       <div class="grid-3">
         <article class="card"><h3>1) Monitora</h3><p>Il paziente registra eventi, terapie e andamento quotidiano.</p></article>

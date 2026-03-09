@@ -374,12 +374,127 @@ function appStoreUrl() {
     return ANDROID_STORE_URL;
 }
 
+function computeDemoRisk(payload) {
+    const hrv = Number(payload.hrv);
+    const heartRate = Number(payload.heart_rate);
+    const movement = Number(payload.movement);
+    const sleepHours = Number(payload.sleep_hours);
+    const medicationTaken = Boolean(payload.medication_taken);
+
+    const hrvRisk = Math.max(0, Math.min(1, (60 - hrv) / 60));
+    const hrRisk = Math.max(0, Math.min(1, Math.abs(heartRate - 72) / 50));
+    const movementRisk = Math.max(0, Math.min(1, (80 - movement) / 120));
+    const sleepRisk = Math.max(0, Math.min(1, (7 - sleepHours) / 7));
+    const medicationRisk = medicationTaken ? 0 : 1;
+
+    const score = (
+        0.25 * hrvRisk +
+        0.20 * hrRisk +
+        0.15 * movementRisk +
+        0.25 * sleepRisk +
+        0.15 * medicationRisk
+    );
+
+    let level = 'low';
+    let message = 'Rischio basso: andamento attuale stabile.';
+    if (score >= 0.67) {
+        level = 'high';
+        message = 'Rischio elevato: valuta monitoraggio ravvicinato e piano sicurezza.';
+    } else if (score >= 0.34) {
+        level = 'medium';
+        message = 'Rischio moderato: controlla sonno, stress e aderenza terapeutica.';
+    }
+
+    return {
+        risk_score: Math.max(0, Math.min(1, score)),
+        risk_level: level,
+        message,
+    };
+}
+
+function renderDemoRisk(result) {
+    const scoreEl = document.getElementById('demoRiskScore');
+    const levelEl = document.getElementById('demoRiskLevel');
+    const msgEl = document.getElementById('demoRiskMessage');
+    if (!scoreEl || !levelEl || !msgEl) return;
+
+    const pct = `${(result.risk_score * 100).toFixed(1)}%`;
+    scoreEl.textContent = pct;
+    scoreEl.classList.remove('risk-low', 'risk-medium', 'risk-high');
+    scoreEl.classList.add(`risk-${result.risk_level}`);
+    levelEl.textContent = `Livello: ${result.risk_level.toUpperCase()}`;
+    msgEl.textContent = result.message;
+}
+
+async function initLandingDemo() {
+    const apiLabel = document.getElementById('apiBaseLabel');
+    const healthEl = document.getElementById('apiHealthStatus');
+    if (apiLabel) {
+        apiLabel.textContent = API_BASE;
+    }
+
+    if (healthEl) {
+        try {
+            const resp = await fetch(`${API_BASE}/health`);
+            if (resp.ok) {
+                healthEl.textContent = 'Backend raggiungibile: pronto per integrazione reale.';
+            } else {
+                healthEl.textContent = 'Backend non raggiungibile (usa ?api_base=https://tuo-backend).';
+            }
+        } catch {
+            healthEl.textContent = 'Backend non raggiungibile (usa ?api_base=https://tuo-backend).';
+        }
+    }
+
+    const form = document.getElementById('demoRiskForm');
+    if (form) {
+        form.addEventListener('submit', (event) => {
+            event.preventDefault();
+            const payload = {
+                hrv: Number(document.getElementById('demoHrv').value),
+                heart_rate: Number(document.getElementById('demoHr').value),
+                movement: Number(document.getElementById('demoMovement').value),
+                sleep_hours: Number(document.getElementById('demoSleep').value),
+                medication_taken: document.getElementById('demoMedication').value === 'true',
+            };
+
+            renderDemoRisk(computeDemoRisk(payload));
+        });
+    }
+
+    const watchBtn = document.getElementById('demoConnectWatchBtn');
+    const watchStatus = document.getElementById('demoWatchStatus');
+    if (watchBtn && watchStatus) {
+        watchBtn.addEventListener('click', async () => {
+            if (!navigator.bluetooth) {
+                watchStatus.textContent = 'Web Bluetooth non supportato su questo browser/dispositivo.';
+                return;
+            }
+
+            try {
+                watchStatus.textContent = 'Ricerca smartwatch...';
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: ['heart_rate'] }],
+                    optionalServices: ['battery_service'],
+                });
+                watchStatus.textContent = `Smartwatch collegato: ${device.name || 'dispositivo BLE'}.`;
+            } catch (err) {
+                watchStatus.textContent = `Connessione annullata/non riuscita: ${err.message}`;
+            }
+        });
+    }
+}
+
 async function boot() {
     bindLogout();
     patchInternalLinks();
     const page = document.body.dataset.page;
     const profile = await loadProfile();
     updateNav(profile);
+
+    if (page === 'landing') {
+        await initLandingDemo();
+    }
 
     if (page === 'login') {
         const error = document.getElementById('loginError');
