@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
+from passlib.context import CryptContext
 
 from app.security_db import (
     AuditLog,
@@ -15,7 +16,11 @@ from app.security_db import (
     PatientOrgConsent,
     SessionLocal,
     User,
+    LocalCredential,
 )
+
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def get_db() -> Session:
@@ -33,6 +38,26 @@ def get_user_by_email(db: Session, email: str) -> Optional[User]:
 
 def get_user_by_id(db: Session, user_id: str) -> Optional[User]:
     return db.query(User).filter(User.id == user_id).first()
+
+
+def set_local_password(db: Session, user_id: str, password: str) -> None:
+    credential = db.query(LocalCredential).filter(LocalCredential.user_id == user_id).first()
+    password_hash = pwd_context.hash(password)
+
+    if credential:
+        credential.password_hash = password_hash
+    else:
+        credential = LocalCredential(user_id=user_id, password_hash=password_hash)
+        db.add(credential)
+
+    db.commit()
+
+
+def verify_local_password(db: Session, user_id: str, password: str) -> bool:
+    credential = db.query(LocalCredential).filter(LocalCredential.user_id == user_id).first()
+    if not credential:
+        return False
+    return pwd_context.verify(password, credential.password_hash)
 
 
 def ensure_user_exists(

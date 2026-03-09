@@ -38,6 +38,15 @@
           <input id="patientPassword" class="form-control" type="password" required>
           <button type="submit" class="btn btn-primary" style="margin-top: 0.8rem;">Accedi</button>
         </form>
+        <hr style="margin: 1rem 0; border-color: rgba(255,255,255,0.1);">
+        <h3>Nuovo utente? Registrati</h3>
+        <form id="patientRegisterForm" class="demo-form" style="text-align: left; margin-top: 0.8rem;">
+          <label for="registerEmail">Email</label>
+          <input id="registerEmail" class="form-control" type="email" required>
+          <label for="registerPassword">Password</label>
+          <input id="registerPassword" class="form-control" type="password" minlength="8" required>
+          <button type="submit" class="btn btn-outline" style="margin-top: 0.8rem;">Registrati e accedi</button>
+        </form>
         <p id="loginError" class="muted"></p>
         <p class="muted">API backend corrente: <code id="loginApiBase"></code></p>
         <p class="muted">Se il login fallisce su Pages, usa URL con <code>?api_base=https://tuo-backend</code>.</p>

@@ -551,6 +551,28 @@ async function boot() {
                 }
             });
         }
+
+        const registerForm = document.getElementById('patientRegisterForm');
+        if (registerForm) {
+            registerForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                showError(error, '');
+                const email = document.getElementById('registerEmail').value.trim();
+                const password = document.getElementById('registerPassword').value;
+
+                try {
+                    const res = await api('/auth/register', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, password }),
+                    });
+                    setToken(res.access_token);
+                    goTo('/dashboard');
+                } catch (err) {
+                    showError(error, err.message || 'Registrazione non riuscita');
+                }
+            });
+        }
     }
 
     if (page === 'login-provider') {

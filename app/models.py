@@ -35,6 +35,12 @@ class GoogleLoginRequest(BaseModel):
     credential: str = Field(..., min_length=20, description="Google ID token")
 
 
+class RegisterRequest(BaseModel):
+    """Richiesta registrazione account locale"""
+    email: str = Field(..., min_length=5, description="Email account")
+    password: str = Field(..., min_length=8, description="Password account")
+
+
 # --- Dati Fisiologici ---
 
 class PhysiologicalData(BaseModel):

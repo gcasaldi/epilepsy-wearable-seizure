@@ -20,12 +20,14 @@ from app.models import (
     RiskPrediction, HealthStatus, TherapyRequest, RiskDataPoint,
     WearableConnectRequest, WearableConnectResponse, WearableDisconnectResponse,
     WearableProvidersResponse, WearableProviderStatus,
+    LoginRequest, RegisterRequest,
 )
 from app.auth import (
     create_access_token,
     get_current_user,
     get_password_hash,
     verify_google_id_token,
+    get_local_account_profile,
 )
 from app.predictor import predictor
 from app.config import settings
@@ -37,6 +39,8 @@ from app.security_service import (
     get_provider_status,
     list_active_consents_for_user,
     soft_delete_account,
+    set_local_password,
+    verify_local_password,
 )
 from app.wearable_service import (
     get_provider,
@@ -323,6 +327,105 @@ async def google_config():
         "google_client_id": settings.google_client_id,
         "enabled": bool(settings.google_client_id)
     }
+
+
+@app.post(
+    "/auth/register",
+    response_model=TokenResponse,
+    tags=["Authentication"],
+    summary="Registrazione account locale (email/password)"
+)
+async def register_local_account(payload: RegisterRequest, http_request: Request):
+    ip = http_request.client.host if http_request.client else "unknown"
+    limiter_key = f"register_local:{ip}"
+    auth_rate_limiter.check(limiter_key)
+
+    email = payload.email.strip().lower()
+    if "@" not in email or "." not in email.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="Email non valida")
+
+    if email == settings.admin_username.lower():
+        raise HTTPException(status_code=400, detail="Email riservata")
+
+    db = SessionLocal()
+    try:
+        existing = get_user_by_email(db, email)
+        if existing and existing.deleted_at is None and existing.is_active:
+            raise HTTPException(status_code=409, detail="Account gia' registrato")
+
+        user = ensure_user_exists(
+            db,
+            email=email,
+            auth_provider="local",
+            account_type="personal",
+            provider_status=None,
+        )
+        set_local_password(db, user.id, payload.password)
+    finally:
+        db.close()
+
+    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
+    access_token = create_access_token(
+        data={"sub": email, "ver": user.token_version},
+        expires_delta=access_token_expires,
+    )
+
+    return TokenResponse(
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=settings.access_token_expire_minutes * 60,
+        username=email,
+    )
+
+
+@app.post(
+    "/auth/login",
+    response_model=TokenResponse,
+    tags=["Authentication"],
+    summary="Login locale (email/password)"
+)
+async def local_login(payload: LoginRequest, http_request: Request):
+    ip = http_request.client.host if http_request.client else "unknown"
+    limiter_key = f"local_login:{ip}"
+    auth_rate_limiter.check(limiter_key)
+
+    username = payload.username.strip()
+    profile = get_local_account_profile(username, payload.password)
+
+    db = SessionLocal()
+    try:
+        if profile:
+            persisted_user = ensure_user_exists(
+                db,
+                email=profile["email"],
+                auth_provider=profile["auth_provider"],
+                account_type=profile["account_type"],
+                provider_status=profile["provider_status"],
+            )
+            ensure_provider_organization_context(db, persisted_user)
+            subject = profile["email"]
+        else:
+            user = get_user_by_email(db, username.lower())
+            if not user or not verify_local_password(db, user.id, payload.password):
+                auth_rate_limiter.register(limiter_key)
+                raise HTTPException(status_code=401, detail="Credenziali non valide")
+            subject = user.email
+            persisted_user = user
+    finally:
+        db.close()
+
+    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
+    access_token = create_access_token(
+        data={"sub": subject, "ver": persisted_user.token_version},
+        expires_delta=access_token_expires,
+    )
+
+    return TokenResponse(
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=settings.access_token_expire_minutes * 60,
+        username=subject,
+    )
 
 
 @app.post(
