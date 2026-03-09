@@ -1053,6 +1053,43 @@ function renderAiTips(tips) {
     aiTips.innerHTML = tips.map((tip) => `<li class="muted">${tip}</li>`).join('');
 }
 
+function renderDeepAiAnalysis({
+    riskScore,
+    riskMessage,
+    hrCurrent,
+    hrvCurrent,
+    medWith,
+    medWithout,
+}) {
+    const box = document.getElementById('aiDeepAnalysis');
+    if (!box) return;
+
+    const riskText = riskLabel(riskScore);
+    let trendText = 'stabile';
+    if (riskScore >= 0.67) trendText = 'in peggioramento';
+    if (riskScore <= 0.25) trendText = 'in miglioramento';
+
+    let medImpactText = 'non disponibile';
+    if (typeof medWith === 'number' && typeof medWithout === 'number') {
+        const delta = Math.max(0, (medWithout - medWith) * 100);
+        medImpactText = `riduzione rischio stimata ~${delta.toFixed(1)}% con terapia`;
+    }
+
+    const lines = [
+        `Stato attuale: rischio ${riskText} (${(riskScore * 100).toFixed(1)}%), trend ${trendText}.`,
+        `Segnali fisiologici: HR ${hrCurrent ?? 'N/D'} bpm, HRV ${hrvCurrent ?? 'N/D'} ms.`,
+        `Impatto terapia: ${medImpactText}.`,
+        `Sintesi AI: ${riskMessage || 'monitoraggio continuo consigliato.'}`,
+    ];
+
+    box.innerHTML = `
+        <h3 style="margin-bottom:0.5rem;">Analisi completa AI</h3>
+        <ul style="margin-left:1rem; display:block;">
+            ${lines.map((line) => `<li class="muted" style="margin-bottom:0.4rem;">${line}</li>`).join('')}
+        </ul>
+    `;
+}
+
 function renderTherapyList(therapies, onDelete) {
     const box = document.getElementById('therapyList');
     if (!box) return;
@@ -1333,6 +1370,10 @@ async function boot() {
 
         let lastRiskScore = 0;
         let lastRiskMessage = '';
+        let hrCurrent = null;
+        let hrvCurrent = null;
+        let medWith = null;
+        let medWithout = null;
         const dashboardUser = user.username || 'user';
 
         let therapiesState = [];
@@ -1358,6 +1399,32 @@ async function boot() {
             }
         } catch {
             renderRiskHistory([]);
+        }
+
+        try {
+            const physio = await api('/api/physiological-summary');
+            if (Array.isArray(physio.hr) && physio.hr.length) {
+                hrCurrent = physio.hr[physio.hr.length - 1];
+            }
+            if (Array.isArray(physio.hrv) && physio.hrv.length) {
+                hrvCurrent = physio.hrv[physio.hrv.length - 1];
+            }
+        } catch {
+            hrCurrent = null;
+            hrvCurrent = null;
+        }
+
+        try {
+            const med = await api('/api/medication-impact');
+            if (Array.isArray(med.with_medication) && med.with_medication.length) {
+                medWith = med.with_medication[med.with_medication.length - 1];
+            }
+            if (Array.isArray(med.without_medication) && med.without_medication.length) {
+                medWithout = med.without_medication[med.without_medication.length - 1];
+            }
+        } catch {
+            medWith = null;
+            medWithout = null;
         }
 
         const refreshTherapies = async () => {
@@ -1505,6 +1572,14 @@ async function boot() {
         await refreshTherapies();
         refreshEvents();
         refreshReminders();
+        renderDeepAiAnalysis({
+            riskScore: lastRiskScore,
+            riskMessage: lastRiskMessage,
+            hrCurrent,
+            hrvCurrent,
+            medWith,
+            medWithout,
+        });
     }
 
     if (page === 'consents') {
