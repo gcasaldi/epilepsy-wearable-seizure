@@ -88,7 +88,8 @@
           <h3>Reminder terapia</h3>
           <form id="therapyReminderForm" class="demo-form">
             <label for="reminderMedication">Farmaco</label>
-            <input id="reminderMedication" class="form-control" type="text" placeholder="es. Levetiracetam" required>
+            <input id="reminderMedication" list="reminderMedicationOptions" class="form-control" type="text" placeholder="es. Levetiracetam" required>
+            <datalist id="reminderMedicationOptions"></datalist>
             <label for="reminderTime">Orario giornaliero</label>
             <input id="reminderTime" class="form-control" type="time" required>
             <button type="submit" class="btn btn-primary">Attiva reminder</button>
@@ -115,6 +116,9 @@
             <label for="quickMedicationTime">Orario</label>
             <input id="quickMedicationTime" class="form-control" type="time">
             <button type="submit" class="btn btn-primary">Aggiungi farmaco</button>
+            <label for="quickMedicationBulk">Aggiunta multipla (una riga per farmaco)</label>
+            <textarea id="quickMedicationBulk" class="form-control" rows="3" placeholder="Levetiracetam|500mg|08:00&#10;Lamotrigina|100mg|20:00"></textarea>
+            <button type="button" id="quickMedicationBulkBtn" class="btn btn-outline">Importa elenco farmaci</button>
           </form>
         </article>
         <article class="card">

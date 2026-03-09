@@ -35,6 +35,12 @@ class Settings(BaseSettings):
 
     # Google OAuth
     google_client_id: str = ""
+
+    # Fitbit OAuth (first real wearable integration)
+    fitbit_client_id: str = ""
+    fitbit_client_secret: str = ""
+    fitbit_redirect_uri: str = ""
+    fitbit_scopes: str = "activity heartrate sleep profile"
     
     # Network Security
     cors_origins: list[str] = ["*"]

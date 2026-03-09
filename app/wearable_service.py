@@ -116,12 +116,16 @@ def upsert_connection(
     mode: str,
     scope: Optional[str] = None,
     external_user_id: Optional[str] = None,
+    access_token_hint: Optional[str] = None,
+    refresh_token_hint: Optional[str] = None,
 ) -> WearableConnection:
     existing = get_connection(db, user_id, provider_key)
     if existing:
         existing.mode = mode
         existing.scope = scope
         existing.external_user_id = external_user_id
+        existing.access_token_hint = access_token_hint
+        existing.refresh_token_hint = refresh_token_hint
         existing.connected_at = datetime.utcnow()
         existing.disconnected_at = None
         db.commit()
@@ -134,6 +138,8 @@ def upsert_connection(
         mode=mode,
         scope=scope,
         external_user_id=external_user_id,
+        access_token_hint=access_token_hint,
+        refresh_token_hint=refresh_token_hint,
         status="connected",
         connected_at=datetime.utcnow(),
     )

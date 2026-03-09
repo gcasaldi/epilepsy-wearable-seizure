@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@500;700&display=swap');
+
 :root {
   --neon-blue: #00f2ff;
   --neon-pink: #ff00f7;
@@ -5,8 +7,8 @@
   --bg-deep: #020205;
   --card-bg: rgba(10, 10, 20, 0.9);
   --glass: rgba(255, 255, 255, 0.05);
-  --font-main: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-main: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'JetBrains Mono', 'Fira Code', monospace;
 }
 
 * {
@@ -88,7 +90,7 @@ body {
 .card {
   background: var(--card-bg);
   border: 1px solid rgba(0, 242, 255, 0.1);
-  border-radius: 4px;
+  border-radius: 12px;
   padding: 20px;
   position: relative;
   overflow: hidden;
@@ -119,6 +121,10 @@ body {
   letter-spacing: 1px;
 }
 
+.card p {
+  line-height: 1.45;
+}
+
 /* KPI Numbers */
 .kpi-value {
   font-family: var(--font-mono);
@@ -145,7 +151,7 @@ body {
   font-family: var(--font-mono);
   text-transform: uppercase;
   padding: 10px 20px;
-  border-radius: 0;
+  border-radius: 10px;
   cursor: pointer;
   transition: 0.3s;
   border: 1px solid transparent;
@@ -219,6 +225,29 @@ body {
 /* Utility */
 .hidden { display: none !important; }
 .muted { color: #666; font-size: 0.8rem; }
+
+#aiTips {
+  margin: 0.6rem 0 1rem 1.1rem;
+  display: block;
+}
+
+#aiTips li {
+  margin-bottom: 0.55rem;
+  line-height: 1.5;
+  color: #cfd3da;
+}
+
+#riskHistoryList {
+  margin-top: 0.8rem;
+}
+
+#riskMainChart {
+  margin-top: 0.3rem;
+}
+
+textarea.form-control {
+  resize: vertical;
+}
 
 .page {
   min-height: 100vh;

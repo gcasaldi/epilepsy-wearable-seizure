@@ -1076,6 +1076,13 @@ function renderTherapyList(therapies, onDelete) {
     });
 }
 
+function updateReminderMedicationOptions(therapies) {
+    const options = document.getElementById('reminderMedicationOptions');
+    if (!options) return;
+    const uniqueNames = [...new Set(therapies.map((t) => t.medication_name).filter(Boolean))];
+    options.innerHTML = uniqueNames.map((name) => `<option value="${name}"></option>`).join('');
+}
+
 async function initLandingDemo() {
     const apiLabel = document.getElementById('apiBaseLabel');
     const healthEl = document.getElementById('apiHealthStatus');
@@ -1357,6 +1364,7 @@ async function boot() {
             try {
                 const therapies = await api('/api/therapies');
                 therapiesState = therapies;
+                updateReminderMedicationOptions(therapiesState);
                 renderTherapyList(therapies, async (therapyId) => {
                     await api(`/api/therapies/${therapyId}`, { method: 'DELETE' });
                     await refreshTherapies();
@@ -1382,6 +1390,34 @@ async function boot() {
                     body: JSON.stringify({ medication_name, dosage: dosage || null, intake_time: intake_time || null }),
                 });
                 quickForm.reset();
+                await refreshTherapies();
+            });
+        }
+
+        const bulkBtn = document.getElementById('quickMedicationBulkBtn');
+        if (bulkBtn) {
+            bulkBtn.addEventListener('click', async () => {
+                const bulkInput = document.getElementById('quickMedicationBulk');
+                const rows = (bulkInput?.value || '')
+                    .split('\n')
+                    .map((r) => r.trim())
+                    .filter(Boolean);
+
+                for (const row of rows) {
+                    const [nameRaw, doseRaw, timeRaw] = row.split('|');
+                    const medication_name = (nameRaw || '').trim();
+                    if (!medication_name) continue;
+                    await api('/api/therapies', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            medication_name,
+                            dosage: (doseRaw || '').trim() || null,
+                            intake_time: (timeRaw || '').trim() || null,
+                        }),
+                    });
+                }
+                if (bulkInput) bulkInput.value = '';
                 await refreshTherapies();
             });
         }

@@ -4,6 +4,12 @@ Con autenticazione JWT per proteggere gli endpoint
 """
 from datetime import datetime, timedelta
 import time as time_module
+import secrets
+import base64
+import json
+import urllib.parse
+import urllib.request
+import urllib.error
 import logging
 from collections import defaultdict, deque
 from pathlib import Path
@@ -104,6 +110,7 @@ auth_rate_limiter = AuthRateLimiter(
 init_security_db()
 FRONTEND_DIR = Path("frontend")
 WEAR_APP_DIR = Path("wear-app")
+FITBIT_OAUTH_STATE: Dict[str, Dict[str, str]] = {}
 
 
 def frontend_page(filename: str) -> FileResponse:
@@ -127,6 +134,44 @@ def resolve_wear_apk() -> Path | None:
     ) if (WEAR_APP_DIR / "app" / "build" / "outputs" / "apk").exists() else []
 
     return apk_files[0] if apk_files else None
+
+
+def exchange_fitbit_oauth_code(code: str, redirect_uri: str) -> dict | None:
+    """Scambio authorization code Fitbit -> token (best effort)."""
+    if not settings.fitbit_client_id or not settings.fitbit_client_secret:
+        return None
+
+    credentials = f"{settings.fitbit_client_id}:{settings.fitbit_client_secret}".encode("utf-8")
+    auth_header = base64.b64encode(credentials).decode("utf-8")
+    payload = urllib.parse.urlencode(
+        {
+            "client_id": settings.fitbit_client_id,
+            "grant_type": "authorization_code",
+            "redirect_uri": redirect_uri,
+            "code": code,
+        }
+    ).encode("utf-8")
+
+    request = urllib.request.Request(
+        "https://api.fitbit.com/oauth2/token",
+        data=payload,
+        method="POST",
+        headers={
+            "Authorization": f"Basic {auth_header}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            raw = response.read().decode("utf-8")
+            return json.loads(raw)
+    except urllib.error.HTTPError as exc:
+        logger.warning("Fitbit token exchange failed: %s", exc)
+        return None
+    except Exception as exc:
+        logger.warning("Fitbit token exchange unexpected error: %s", exc)
+        return None
 
 # CORS
 app.add_middleware(
@@ -611,7 +656,30 @@ async def wearable_connect(
             if not auth_url:
                 raise HTTPException(status_code=400, detail="OAuth URL non disponibile per provider")
 
-            callback_url = payload.redirect_uri or f"{settings.cors_origins[0]}/settings"
+            callback_url = settings.fitbit_redirect_uri or payload.redirect_uri or f"{settings.cors_origins[0]}/auth/fitbit/callback"
+
+            if provider_key == "fitbit" and settings.fitbit_client_id:
+                state = secrets.token_urlsafe(24)
+                FITBIT_OAUTH_STATE[state] = {
+                    "username": current_user,
+                    "redirect_uri": callback_url,
+                }
+                scope = urllib.parse.quote(settings.fitbit_scopes)
+                redirect_q = urllib.parse.quote(callback_url, safe="")
+                client_q = urllib.parse.quote(settings.fitbit_client_id, safe="")
+                auth_url = (
+                    "https://www.fitbit.com/oauth2/authorize"
+                    f"?response_type=code&client_id={client_q}&redirect_uri={redirect_q}"
+                    f"&scope={scope}&state={state}&expires_in=604800&prompt=consent"
+                )
+                return WearableConnectResponse(
+                    provider_key=provider_key,
+                    mode=mode,
+                    status="pending_oauth",
+                    auth_url=auth_url,
+                    message="Fitbit OAuth avviato: completa autorizzazione e callback.",
+                )
+
             simulated_auth_url = f"{auth_url}?client_id=TO_CONFIGURE&redirect_uri={callback_url}&response_type=code&scope=heartrate%20sleep%20activity"
             return WearableConnectResponse(
                 provider_key=provider_key,
@@ -637,6 +705,60 @@ async def wearable_connect(
         )
     finally:
         db.close()
+
+
+@app.get(
+    "/auth/fitbit/callback",
+    tags=["Wearables"],
+    summary="OAuth callback Fitbit"
+)
+async def fitbit_callback(code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None):
+    if error:
+        raise HTTPException(status_code=400, detail=f"Fitbit OAuth error: {error}")
+    if not code or not state:
+        raise HTTPException(status_code=400, detail="Callback Fitbit incompleto")
+
+    state_payload = FITBIT_OAUTH_STATE.pop(state, None)
+    if not state_payload:
+        raise HTTPException(status_code=400, detail="State OAuth Fitbit non valido o scaduto")
+
+    username = state_payload["username"]
+    redirect_uri = state_payload["redirect_uri"]
+    token_data = exchange_fitbit_oauth_code(code, redirect_uri)
+
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, username)
+        if not user:
+            raise HTTPException(status_code=404, detail="Utente non trovato per callback Fitbit")
+
+        access_hint = None
+        refresh_hint = None
+        if token_data:
+            access_token = token_data.get("access_token")
+            refresh_token = token_data.get("refresh_token")
+            access_hint = access_token[:14] + "..." if access_token else None
+            refresh_hint = refresh_token[:14] + "..." if refresh_token else None
+
+        upsert_connection(
+            db=db,
+            user_id=user.id,
+            provider_key="fitbit",
+            mode="oauth",
+            scope=settings.fitbit_scopes,
+            external_user_id=username,
+            access_token_hint=access_hint,
+            refresh_token_hint=refresh_hint,
+        )
+    finally:
+        db.close()
+
+    return {
+        "status": "connected",
+        "provider": "fitbit",
+        "token_exchanged": bool(token_data),
+        "message": "Fitbit collegato. Torna alla dashboard impostazioni per aggiornare lo stato.",
+    }
 
 
 @app.delete(
