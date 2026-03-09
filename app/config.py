@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     """Configurazione con variabili d'ambiente"""
     
     # Application
-    app_name: str = "Epiguard AI Terminal"
+    app_name: str = "Epiguard"
     app_version: str = "1.0.0"
     debug: bool = True
     database_url: str = "sqlite:///./epilepsy_security.db"
