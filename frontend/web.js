@@ -159,6 +159,10 @@ function userScopedKey(email, suffix) {
     return `epiguard_${suffix}_${email}`;
 }
 
+function userBiometricSamplesKey(email) {
+    return userScopedKey(email, 'biometric_samples');
+}
+
 function readJsonStorage(key, fallback) {
     try {
         const value = localStorage.getItem(key);
@@ -397,6 +401,24 @@ async function localApiFallback(path, options = {}) {
     }
 
     if (path === '/api/risk-history' && method === 'GET') {
+        const profile = getLocalProfileFromToken();
+        const samples = profile ? readJsonStorage(userBiometricSamplesKey(profile.email), []) : [];
+        if (samples.length) {
+            return samples.slice(-24).reverse().map((s) => {
+                const risk = computeDemoRisk({
+                    hrv: s.hrv,
+                    heart_rate: s.heart_rate,
+                    movement: s.movement,
+                    sleep_hours: s.sleep_hours,
+                    medication_taken: true,
+                });
+                return {
+                    timestamp: s.timestamp,
+                    risk_score: risk.risk_score,
+                };
+            });
+        }
+
         const now = Date.now();
         const rows = [];
         for (let i = 0; i < 24; i += 1) {
@@ -410,6 +432,17 @@ async function localApiFallback(path, options = {}) {
     }
 
     if (path === '/api/physiological-summary' && method === 'GET') {
+        const profile = getLocalProfileFromToken();
+        const samples = profile ? readJsonStorage(userBiometricSamplesKey(profile.email), []) : [];
+        if (samples.length) {
+            const latest = samples.slice(-12);
+            return {
+                hr: latest.map((s) => s.heart_rate),
+                hrv: latest.map((s) => s.hrv),
+                labels: latest.map((s) => new Date(s.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
+            };
+        }
+
         const labels = [];
         const hr = [];
         const hrv = [];
@@ -475,6 +508,7 @@ async function localApiFallback(path, options = {}) {
         const profile = getLocalProfileFromToken();
         if (!profile) throw new Error('Sessione non valida');
         const connected = readJsonStorage(userScopedKey(profile.email, 'wearables'), []);
+        const syncMeta = readJsonStorage(userScopedKey(profile.email, 'wearables_sync_meta'), null);
         const catalog = [
             ['fitbit', 'Fitbit', 'watch+fitness', 'oauth'],
             ['garmin_connect', 'Garmin Connect', 'watch+fitness', 'oauth'],
@@ -497,11 +531,57 @@ async function localApiFallback(path, options = {}) {
             connected_at: connected.includes(provider_key) ? new Date().toISOString() : null,
             last_sync_at: null,
             message: connected.includes(provider_key) ? 'Collegato (demo)' : 'Non collegato',
+            last_sync_at: connected.includes(provider_key) ? (syncMeta?.last_sync_at || null) : null,
         }));
         return {
             total: items.length,
             connected: items.filter((i) => i.connected).length,
             items,
+        };
+    }
+
+    if (path === '/api/wearable/sync' && method === 'POST') {
+        const profile = getLocalProfileFromToken();
+        if (!profile) throw new Error('Sessione non valida');
+
+        const connected = readJsonStorage(userScopedKey(profile.email, 'wearables'), []);
+        if (!connected.length) {
+            throw new Error('Nessun provider wearable collegato');
+        }
+
+        const now = new Date();
+        const count = connected.length;
+        const hr = Math.max(52, Math.min(145, Math.round(73 + 6 * Math.sin(Date.now() / 210000) - count)));
+        const hrv = Math.max(20, Math.min(95, Math.round(45 + 5 * Math.cos(Date.now() / 180000) + count)));
+        const movement = Math.max(1, Math.round(110 + count * 24 + 18 * Math.sin(Date.now() / 260000)));
+        const sleep = Math.max(4.5, Math.min(9.2, 6.7 + count * 0.23));
+        const stress = Math.max(0.05, Math.min(0.9, 0.65 - (hrv / 180)));
+
+        const sample = {
+            timestamp: now.toISOString(),
+            heart_rate: hr,
+            hrv,
+            movement,
+            sleep_hours: Number(sleep.toFixed(2)),
+            stress_index: Number(stress.toFixed(3)),
+        };
+
+        const sampleKey = userBiometricSamplesKey(profile.email);
+        const rows = readJsonStorage(sampleKey, []);
+        rows.push(sample);
+        writeJsonStorage(sampleKey, rows.slice(-96));
+
+        writeJsonStorage(userScopedKey(profile.email, 'wearables_sync_meta'), {
+            last_sync_at: sample.timestamp,
+            connected_count: count,
+        });
+
+        return {
+            status: 'success',
+            message: `Sincronizzazione completata: ${count} provider aggiornati.`,
+            synced_providers: connected,
+            sample,
+            timestamp: sample.timestamp,
         };
     }
 
@@ -738,6 +818,54 @@ async function renderWearableProviders() {
         container.innerHTML = '<article class="card"><p class="muted">Errore nel caricamento integrazioni.</p></article>';
         console.error(err);
     }
+}
+
+async function renderWearableSyncStatus() {
+    const statusEl = document.getElementById('wearableSyncStatus');
+    if (!statusEl) return;
+
+    try {
+        const providers = await api('/api/wearable/providers');
+        const syncTimes = providers.items
+            .map((i) => i.last_sync_at)
+            .filter(Boolean)
+            .map((v) => new Date(v).getTime())
+            .filter((v) => Number.isFinite(v));
+
+        if (!syncTimes.length) {
+            statusEl.textContent = 'Nessuna sincronizzazione recente.';
+            return;
+        }
+
+        const lastSyncTs = Math.max(...syncTimes);
+        statusEl.textContent = `Ultima sync: ${new Date(lastSyncTs).toLocaleString()}`;
+    } catch {
+        statusEl.textContent = 'Stato sincronizzazione non disponibile.';
+    }
+}
+
+function bindWearableSyncButton() {
+    const syncBtn = document.getElementById('wearableSyncNowBtn');
+    const statusEl = document.getElementById('wearableSyncStatus');
+    if (!syncBtn) return;
+
+    syncBtn.addEventListener('click', async () => {
+        syncBtn.disabled = true;
+        if (statusEl) statusEl.textContent = 'Sincronizzazione in corso...';
+        try {
+            const result = await api('/api/wearable/sync', { method: 'POST' });
+            if (statusEl) {
+                const ts = result.timestamp ? new Date(result.timestamp).toLocaleString() : 'adesso';
+                statusEl.textContent = `${result.message || 'Sync completata'} (${ts})`;
+            }
+            await renderWearableProviders();
+        } catch (err) {
+            if (statusEl) statusEl.textContent = `Sync non riuscita: ${err.message}`;
+        } finally {
+            syncBtn.disabled = false;
+            await renderWearableSyncStatus();
+        }
+    });
 }
 
 async function initGoogleButton(targetId, onCredential) {
@@ -1993,6 +2121,8 @@ async function boot() {
         }
 
         await renderWearableProviders();
+        bindWearableSyncButton();
+        await renderWearableSyncStatus();
     }
 
     if (page === 'provider-gate') {
