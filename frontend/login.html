@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login Paziente - Epilessia Platform</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body data-page="login" class="page">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a href="/" class="brand">Epilessia Platform</a>
+      <nav class="nav">
+        <a href="/" class="nav-link">Home</a>
+        <a href="/login/provider" class="nav-link">Accesso Ente</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="page-head">
+      <h1>Accedi come Paziente</h1>
+      <p class="muted">Accesso protetto con Google Sign-In.</p>
+    </section>
+
+    <section class="section">
+      <article class="card" style="max-width: 460px; margin: 0 auto; text-align: center;">
+        <h3>Login sicuro</h3>
+        <p class="muted">I dati restano sotto il tuo controllo con consenso esplicito e revocabile.</p>
+        <div id="googlePatientButton" style="display: inline-block; margin: 1rem 0;"></div>
+        <p id="loginError" class="muted"></p>
+      </article>
+    </section>
+  </main>
+
+  <script src="web.js"></script>
+</body>
+</html>

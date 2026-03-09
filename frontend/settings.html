@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Impostazioni - Epilessia Platform</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body data-page="settings" class="page">
   <header class="topbar">
@@ -47,8 +47,18 @@
         <button id="deleteAccountBtn" class="btn btn-outline">Cancella account</button>
       </article>
     </section>
+
+    <section class="page-head" style="margin-top: 2rem;">
+      <h2>Connessioni smartwatch e app fitness</h2>
+      <p class="muted">
+        Collega Fitbit, Garmin, Oura, Polar, Withings, Strava e altri hub salute. Alcuni provider sono in modalita` bridge/demo finche` non configuriamo le credenziali OAuth ufficiali.
+      </p>
+      <p id="wearableSummary" class="muted">Caricamento stato connessioni...</p>
+    </section>
+
+    <section id="wearableProviders" class="grid-2"></section>
   </main>
 
-  <script src="/static/web.js"></script>
+  <script src="web.js"></script>
 </body>
 </html>

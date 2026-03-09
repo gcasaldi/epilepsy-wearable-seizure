@@ -9,6 +9,7 @@
 - ✅ **Dashboard web** con visualizzazione rischio in tempo reale
 - ✅ **Algoritmo predittivo** basato su parametri fisiologici
 - ✅ **Telemetria estesa da wearable** (HR, HRV, SpO₂, respirazione, temperatura, passi, stress)
+- ✅ **Wearable Hub multi-provider** (Fitbit, Garmin, Oura, Polar, Withings, Strava, Health Connect, Apple Health)
 - ✅ **Codifica a colori** (verde/giallo/rosso) per rischio
 - ✅ **Invio automatico** opzionale ogni 5 secondi
 - ✅ **Password hashate** con bcrypt (mai salvate in chiaro)
@@ -163,6 +164,40 @@ curl http://localhost:8000/health
 ```
 
 #### 🔒 Protetti (richiedono token)
+
+**GET `/api/wearable/providers`** - Stato provider wearable/fintess per utente
+
+```bash
+curl http://localhost:8000/api/wearable/providers \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE"
+```
+
+**POST `/api/wearable/connect/{provider_key}`** - Collega provider
+
+Esempio demo bridge:
+
+```bash
+curl -X POST http://localhost:8000/api/wearable/connect/health_connect \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE" \
+  -H "Content-Type: application/json" \
+  -d '{"mode":"demo","redirect_uri":"http://localhost:8000/settings"}'
+```
+
+Esempio OAuth (link pronto da completare con credenziali provider):
+
+```bash
+curl -X POST http://localhost:8000/api/wearable/connect/fitbit \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE" \
+  -H "Content-Type: application/json" \
+  -d '{"mode":"oauth","redirect_uri":"http://localhost:8000/settings"}'
+```
+
+**DELETE `/api/wearable/connect/{provider_key}`** - Disconnette provider
+
+```bash
+curl -X DELETE http://localhost:8000/api/wearable/connect/fitbit \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE"
+```
 
 **POST `/api/predict`** - Calcola rischio crisi
 

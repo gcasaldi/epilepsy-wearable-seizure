@@ -1,5 +1,93 @@
-const API_BASE = window.location.origin;
 const TOKEN_KEY = 'authToken';
+const API_BASE_STORAGE_KEY = 'epiguard_api_base';
+
+const ROUTE_TO_PAGE = {
+    '/': 'index.html',
+    '/login': 'login.html',
+    '/login/provider': 'login-provider.html',
+    '/app': 'app-download.html',
+    '/dashboard': 'dashboard.html',
+    '/dashboard-v2': 'dashboard-v2.html',
+    '/therapy': 'therapy.html',
+    '/consents': 'consents.html',
+    '/settings': 'settings.html',
+    '/provider': 'provider.html',
+    '/provider/dashboard': 'provider-dashboard.html',
+    '/provider/patients': 'provider-patients.html',
+    '/provider/invites': 'provider-invites.html',
+    '/provider/audit': 'provider-audit.html',
+    '/privacy': 'privacy.html',
+    '/terms': 'terms.html',
+    '/contact': 'contact.html',
+    '/disclaimer': 'disclaimer.html',
+};
+
+function isGitHubPagesRuntime() {
+    return window.location.hostname.endsWith('github.io');
+}
+
+function appBasePath() {
+    if (!isGitHubPagesRuntime()) return '';
+    const parts = window.location.pathname.split('/').filter(Boolean);
+    return parts.length ? `/${parts[0]}` : '';
+}
+
+function normalizeBaseUrl(url) {
+    if (!url) return '';
+    return String(url).replace(/\/$/, '');
+}
+
+function readApiBaseFromQuery() {
+    const params = new URLSearchParams(window.location.search);
+    const value = params.get('api_base');
+    if (!value) return '';
+    if (!/^https?:\/\//i.test(value)) return '';
+    return normalizeBaseUrl(value);
+}
+
+function resolveApiBase() {
+    const queryValue = readApiBaseFromQuery();
+    if (queryValue) {
+        localStorage.setItem(API_BASE_STORAGE_KEY, queryValue);
+        return queryValue;
+    }
+
+    const stored = normalizeBaseUrl(localStorage.getItem(API_BASE_STORAGE_KEY) || '');
+    if (stored && /^https?:\/\//i.test(stored)) {
+        return stored;
+    }
+
+    return normalizeBaseUrl(window.location.origin);
+}
+
+function appPath(route) {
+    if (!isGitHubPagesRuntime()) return route;
+    const base = appBasePath();
+    const page = ROUTE_TO_PAGE[route] || ROUTE_TO_PAGE['/'];
+    return `${base}/${page}`;
+}
+
+function goTo(route) {
+    window.location.href = appPath(route);
+}
+
+function patchInternalLinks() {
+    document.querySelectorAll('a[href^="/"]').forEach((anchor) => {
+        const href = anchor.getAttribute('href');
+        if (!href) return;
+
+        if (href === LOCAL_APK_PATH) {
+            anchor.href = `${API_BASE}${LOCAL_APK_PATH}`;
+            return;
+        }
+
+        if (ROUTE_TO_PAGE[href]) {
+            anchor.href = appPath(href);
+        }
+    });
+}
+
+const API_BASE = resolveApiBase();
 
 function getToken() {
     return localStorage.getItem(TOKEN_KEY);
@@ -67,7 +155,7 @@ function bindLogout() {
     if (!logoutBtn) return;
     logoutBtn.addEventListener('click', () => {
         clearSession();
-        window.location.href = '/login';
+        goTo('/login');
     });
 }
 
@@ -80,6 +168,100 @@ function showError(el, message) {
     }
     el.textContent = message;
     el.classList.add('show');
+}
+
+function providerModeLabel(mode) {
+    if (mode === 'oauth') return 'OAuth';
+    if (mode === 'bridge') return 'Bridge app';
+    if (mode === 'legacy') return 'Legacy';
+    return mode || 'N/D';
+}
+
+function providerStatusTag(item) {
+    if (item.connected) {
+        return '<span class="tag tag-success">Collegato</span>';
+    }
+    return '<span class="tag">Non collegato</span>';
+}
+
+async function renderWearableProviders() {
+    const summaryEl = document.getElementById('wearableSummary');
+    const container = document.getElementById('wearableProviders');
+    if (!summaryEl || !container) return;
+
+    try {
+        const providers = await api('/api/wearable/providers');
+        summaryEl.textContent = `${providers.connected} su ${providers.total} provider collegati.`;
+
+        container.innerHTML = providers.items.map((item) => {
+            const connectAction = item.connected
+                ? `<button class="btn btn-outline" data-provider-disconnect="${item.provider_key}">Disconnetti</button>`
+                : `<button class="btn" data-provider-connect="${item.provider_key}" data-provider-mode="${item.supported_mode === 'oauth' ? 'oauth' : 'demo'}">Collega</button>`;
+
+            const oauthHelp = item.supported_mode === 'oauth'
+                ? '<p class="muted">Modalita`: OAuth diretto (attiva con credenziali provider).</p>'
+                : '<p class="muted">Modalita`: bridge/app companion.</p>';
+
+            return `
+                <article class="card">
+                    <h3>${item.provider_name}</h3>
+                    <p class="muted">Categoria: ${item.category} · Integrazione: ${providerModeLabel(item.supported_mode)}</p>
+                    <p>${providerStatusTag(item)}</p>
+                    ${oauthHelp}
+                    ${connectAction}
+                </article>
+            `;
+        }).join('');
+
+        container.querySelectorAll('[data-provider-connect]').forEach((btn) => {
+            btn.addEventListener('click', async () => {
+                const providerKey = btn.getAttribute('data-provider-connect');
+                const mode = btn.getAttribute('data-provider-mode') || 'demo';
+                try {
+                    const result = await api(`/api/wearable/connect/${providerKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            mode,
+                            redirect_uri: `${window.location.origin}/settings`,
+                        }),
+                    });
+
+                    if (result.status === 'pending_oauth' && result.auth_url) {
+                        const proceed = confirm('Provider pronto in OAuth. Vuoi aprire il link autorizzazione?');
+                        if (proceed) {
+                            window.open(result.auth_url, '_blank', 'noopener');
+                        }
+                    } else {
+                        alert(result.message || 'Provider collegato');
+                    }
+
+                    await renderWearableProviders();
+                } catch (err) {
+                    alert(err.message);
+                }
+            });
+        });
+
+        container.querySelectorAll('[data-provider-disconnect]').forEach((btn) => {
+            btn.addEventListener('click', async () => {
+                const providerKey = btn.getAttribute('data-provider-disconnect');
+                try {
+                    const result = await api(`/api/wearable/connect/${providerKey}`, {
+                        method: 'DELETE',
+                    });
+                    alert(result.message || 'Provider disconnesso');
+                    await renderWearableProviders();
+                } catch (err) {
+                    alert(err.message);
+                }
+            });
+        });
+    } catch (err) {
+        summaryEl.textContent = 'Impossibile caricare i provider wearable.';
+        container.innerHTML = '<article class="card"><p class="muted">Errore nel caricamento integrazioni.</p></article>';
+        console.error(err);
+    }
 }
 
 async function initGoogleButton(targetId, onCredential) {
@@ -138,15 +320,15 @@ async function loginWithGoogle(credential) {
 async function requireAuth(allowedTypes = []) {
     const profile = await loadProfile();
     if (!profile) {
-        window.location.href = '/login';
+        goTo('/login');
         return null;
     }
 
     if (allowedTypes.length && !allowedTypes.includes(profile.account_type)) {
         if (profile.account_type === 'provider') {
-            window.location.href = '/provider';
+            goTo('/provider');
         } else {
-            window.location.href = '/dashboard';
+            goTo('/dashboard');
         }
         return null;
     }
@@ -161,7 +343,7 @@ async function requireVerifiedProvider() {
 
     const provider = await api('/api/provider/status');
     if (!provider.verified) {
-        window.location.href = '/provider';
+        goTo('/provider');
         return null;
     }
 
@@ -182,7 +364,7 @@ function qrImageUrl(targetUrl) {
 }
 
 function localApkUrl() {
-    return `${window.location.origin}${LOCAL_APK_PATH}`;
+    return `${API_BASE}${LOCAL_APK_PATH}`;
 }
 
 function appStoreUrl() {
@@ -194,6 +376,7 @@ function appStoreUrl() {
 
 async function boot() {
     bindLogout();
+    patchInternalLinks();
     const page = document.body.dataset.page;
     const profile = await loadProfile();
     updateNav(profile);
@@ -204,7 +387,7 @@ async function boot() {
             await initGoogleButton('googlePatientButton', async (response) => {
                 try {
                     await loginWithGoogle(response.credential);
-                    window.location.href = '/dashboard';
+                    goTo('/dashboard');
                 } catch (err) {
                     showError(error, err.message);
                 }
@@ -221,7 +404,7 @@ async function boot() {
                 try {
                     await loginWithGoogle(response.credential);
                     const status = await api('/api/provider/status');
-                    window.location.href = status.verified ? '/provider/dashboard' : '/provider';
+                    goTo(status.verified ? '/provider/dashboard' : '/provider');
                 } catch (err) {
                     showError(error, err.message);
                 }
@@ -245,7 +428,7 @@ async function boot() {
                     });
                     setToken(res.access_token);
                     const status = await api('/api/provider/status');
-                    window.location.href = status.verified ? '/provider/dashboard' : '/provider';
+                    goTo(status.verified ? '/provider/dashboard' : '/provider');
                 } catch (err) {
                     showError(error, err.message);
                 }
@@ -271,7 +454,7 @@ async function boot() {
 
         const apkDownloadLink = document.getElementById('apkDownloadLink');
         if (apkDownloadLink) {
-            apkDownloadLink.href = LOCAL_APK_PATH;
+            apkDownloadLink.href = `${API_BASE}${LOCAL_APK_PATH}`;
         }
 
         const storeLink = document.getElementById('smartStoreLink');
@@ -350,12 +533,14 @@ async function boot() {
                 try {
                     await api('/api/account', { method: 'DELETE' });
                     clearSession();
-                    window.location.href = '/login';
+                    goTo('/login');
                 } catch (err) {
                     alert(err.message);
                 }
             });
         }
+
+        await renderWearableProviders();
     }
 
     if (page === 'provider-gate') {
@@ -370,7 +555,7 @@ async function boot() {
         if (status.verified) {
             verified.classList.remove('hidden');
             setTimeout(() => {
-                window.location.href = '/provider/dashboard';
+                goTo('/provider/dashboard');
             }, 700);
         } else if (status.provider_status === 'provider_pending') {
             pending.classList.remove('hidden');

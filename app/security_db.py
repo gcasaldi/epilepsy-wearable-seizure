@@ -135,5 +135,24 @@ class Therapy(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class WearableConnection(Base):
+    __tablename__ = "wearable_connections"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    provider_key: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="connected")
+    mode: Mapped[str] = mapped_column(String(20), nullable=False, default="demo")
+    scope: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    external_user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    access_token_hint: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    refresh_token_hint: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    connected_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    last_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    disconnected_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 def init_security_db() -> None:
     Base.metadata.create_all(bind=engine)

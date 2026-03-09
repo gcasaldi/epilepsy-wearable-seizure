@@ -128,3 +128,53 @@ class RiskDataPoint(BaseModel):
     """Punto dati per grafico andamento rischio"""
     timestamp: datetime
     risk_score: float
+
+
+# --- Integrazioni Wearable/Fitness ---
+
+class WearableConnectRequest(BaseModel):
+    """Richiesta connessione provider wearable."""
+    redirect_uri: Optional[str] = Field(
+        default=None,
+        description="Redirect URI da usare nel flusso OAuth provider"
+    )
+    mode: str = Field(
+        default="demo",
+        description="demo o oauth (oauth pronto per credenziali reali)"
+    )
+
+
+class WearableProviderStatus(BaseModel):
+    """Stato connessione singolo provider."""
+    provider_key: str
+    provider_name: str
+    category: str
+    supported_mode: str
+    connected: bool
+    status: str
+    connected_at: Optional[datetime] = None
+    last_sync_at: Optional[datetime] = None
+    message: Optional[str] = None
+
+
+class WearableProvidersResponse(BaseModel):
+    """Lista provider supportati con stato utente."""
+    total: int
+    connected: int
+    items: list[WearableProviderStatus]
+
+
+class WearableConnectResponse(BaseModel):
+    """Risposta avvio connessione provider."""
+    provider_key: str
+    mode: str
+    status: str
+    auth_url: Optional[str] = None
+    message: str
+
+
+class WearableDisconnectResponse(BaseModel):
+    """Risposta disconnessione provider."""
+    provider_key: str
+    status: str
+    message: str

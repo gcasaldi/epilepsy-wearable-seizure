@@ -2,7 +2,8 @@
 FastAPI Application - Epilepsy Seizure Prediction
 Con autenticazione JWT per proteggere gli endpoint
 """
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta
+import time as time_module
 import logging
 from collections import defaultdict, deque
 from pathlib import Path
@@ -16,7 +17,9 @@ from fastapi.staticfiles import StaticFiles
 
 from app.models import (
     GoogleLoginRequest, TokenResponse, AccountDeleteResponse, PhysiologicalData,
-    RiskPrediction, HealthStatus, TherapyRequest, RiskDataPoint
+    RiskPrediction, HealthStatus, TherapyRequest, RiskDataPoint,
+    WearableConnectRequest, WearableConnectResponse, WearableDisconnectResponse,
+    WearableProvidersResponse, WearableProviderStatus,
 )
 from app.auth import (
     create_access_token,
@@ -34,6 +37,13 @@ from app.security_service import (
     get_provider_status,
     list_active_consents_for_user,
     soft_delete_account,
+)
+from app.wearable_service import (
+    get_provider,
+    list_connections,
+    list_supported_providers,
+    upsert_connection,
+    disconnect_connection,
 )
 
 # Logging
@@ -68,7 +78,7 @@ class AuthRateLimiter:
             records.popleft()
 
     def check(self, key: str):
-        now = time.time()
+        now = time_module.time()
         self._clean(key, now)
         if len(self.attempts[key]) >= self.max_attempts:
             raise HTTPException(
@@ -77,7 +87,7 @@ class AuthRateLimiter:
             )
 
     def register(self, key: str):
-        now = time.time()
+        now = time_module.time()
         self._clean(key, now)
         self.attempts[key].append(now)
 
@@ -186,6 +196,21 @@ async def login_page():
     return frontend_page("login.html")
 
 
+@app.get("/login/provider", include_in_schema=False)
+async def provider_login_page():
+    return frontend_page("login-provider.html")
+
+
+@app.get("/style.css", include_in_schema=False)
+async def style_css_asset():
+    return frontend_page("style.css")
+
+
+@app.get("/web.js", include_in_schema=False)
+async def web_js_asset():
+    return frontend_page("web.js")
+
+
 @app.get("/app", include_in_schema=False)
 async def app_download_page():
     return frontend_page("app-download.html")
@@ -227,6 +252,11 @@ async def consents_page():
 
 @app.get("/settings", include_in_schema=False)
 async def settings_page():
+    return frontend_page("settings.html")
+
+
+@app.get("/connect", include_in_schema=False)
+async def connect_page():
     return frontend_page("settings.html")
 
 
@@ -401,6 +431,144 @@ async def user_consents(current_user: str = Depends(get_current_user)):
     }
 
 
+@app.get(
+    "/api/wearable/providers",
+    response_model=WearableProvidersResponse,
+    tags=["Wearables"],
+    summary="Provider wearable supportati e stato connessioni"
+)
+async def wearable_providers(current_user: str = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, current_user)
+        if not user:
+            raise HTTPException(status_code=404, detail="Utente non trovato")
+
+        connections = list_connections(db, user.id)
+        provider_items: list[WearableProviderStatus] = []
+
+        for provider in list_supported_providers():
+            conn = connections.get(provider["provider_key"])
+            provider_items.append(
+                WearableProviderStatus(
+                    provider_key=provider["provider_key"],
+                    provider_name=provider["provider_name"],
+                    category=provider["category"],
+                    supported_mode=provider["supported_mode"],
+                    connected=bool(conn),
+                    status="connected" if conn else "not_connected",
+                    connected_at=conn.connected_at if conn else None,
+                    last_sync_at=conn.last_sync_at if conn else None,
+                    message="Collegato" if conn else "Non collegato",
+                )
+            )
+
+        return WearableProvidersResponse(
+            total=len(provider_items),
+            connected=sum(1 for i in provider_items if i.connected),
+            items=provider_items,
+        )
+    finally:
+        db.close()
+
+
+@app.post(
+    "/api/wearable/connect/{provider_key}",
+    response_model=WearableConnectResponse,
+    tags=["Wearables"],
+    summary="Avvia connessione provider wearable"
+)
+async def wearable_connect(
+    provider_key: str,
+    payload: WearableConnectRequest,
+    current_user: str = Depends(get_current_user),
+):
+    provider = get_provider(provider_key)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider non supportato")
+
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, current_user)
+        if not user:
+            raise HTTPException(status_code=404, detail="Utente non trovato")
+
+        mode = payload.mode.lower().strip()
+        if mode not in {"demo", "oauth"}:
+            raise HTTPException(status_code=400, detail="mode deve essere demo oppure oauth")
+
+        if mode == "oauth" and provider["supported_mode"] not in {"oauth"}:
+            raise HTTPException(
+                status_code=400,
+                detail="Questo provider richiede bridge/app companion, non OAuth diretto",
+            )
+
+        if mode == "oauth":
+            auth_url = provider.get("oauth_auth_url")
+            if not auth_url:
+                raise HTTPException(status_code=400, detail="OAuth URL non disponibile per provider")
+
+            callback_url = payload.redirect_uri or f"{settings.cors_origins[0]}/settings"
+            simulated_auth_url = f"{auth_url}?client_id=TO_CONFIGURE&redirect_uri={callback_url}&response_type=code&scope=heartrate%20sleep%20activity"
+            return WearableConnectResponse(
+                provider_key=provider_key,
+                mode=mode,
+                status="pending_oauth",
+                auth_url=simulated_auth_url,
+                message="Flusso OAuth pronto: configura client_id/secret nel backend per attivare la connessione reale.",
+            )
+
+        upsert_connection(
+            db=db,
+            user_id=user.id,
+            provider_key=provider_key,
+            mode=mode,
+            scope="heartrate,sleep,activity,spo2",
+            external_user_id=current_user,
+        )
+        return WearableConnectResponse(
+            provider_key=provider_key,
+            mode=mode,
+            status="connected",
+            message="Provider collegato in modalita demo bridge.",
+        )
+    finally:
+        db.close()
+
+
+@app.delete(
+    "/api/wearable/connect/{provider_key}",
+    response_model=WearableDisconnectResponse,
+    tags=["Wearables"],
+    summary="Disconnette provider wearable"
+)
+async def wearable_disconnect(provider_key: str, current_user: str = Depends(get_current_user)):
+    provider = get_provider(provider_key)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider non supportato")
+
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, current_user)
+        if not user:
+            raise HTTPException(status_code=404, detail="Utente non trovato")
+        removed = disconnect_connection(db, user.id, provider_key)
+        if not removed:
+            return WearableDisconnectResponse(
+                provider_key=provider_key,
+                status="not_connected",
+                message="Provider non risultava collegato.",
+            )
+
+        return WearableDisconnectResponse(
+            provider_key=provider_key,
+            status="disconnected",
+            message="Provider disconnesso con successo.",
+        )
+    finally:
+        db.close()
+
+
 @app.delete(
     "/api/account",
     response_model=AccountDeleteResponse,
@@ -559,7 +727,7 @@ async def get_physiological_summary(current_user: str = Depends(get_current_user
     return {
         "hr": [70, 72, 75, 73, 76, 78, 80, 79, 77, 75, 74, 72],
         "hrv": [55, 53, 50, 52, 49, 47, 45, 46, 48, 50, 51, 53],
-        "labels": [f"{(datetime.now() - timedelta(hours=i)).strftime("%H:%M")}" for i in range(12)]
+        "labels": [(datetime.now() - timedelta(hours=i)).strftime("%H:%M") for i in range(12)]
     }
 
 @app.get("/api/medication-impact", tags=["Dashboard"])
