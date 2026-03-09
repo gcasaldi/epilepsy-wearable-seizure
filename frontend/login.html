@@ -29,7 +29,18 @@
         <h3>Login sicuro</h3>
         <p class="muted">I dati restano sotto il tuo controllo con consenso esplicito e revocabile.</p>
         <div id="googlePatientButton" style="display: inline-block; margin: 1rem 0;"></div>
+        <hr style="margin: 1rem 0; border-color: rgba(255,255,255,0.1);">
+        <h3>Oppure accedi con email e password</h3>
+        <form id="patientLocalLoginForm" class="demo-form" style="text-align: left; margin-top: 0.8rem;">
+          <label for="patientUsername">Email/Username</label>
+          <input id="patientUsername" class="form-control" type="text" required>
+          <label for="patientPassword">Password</label>
+          <input id="patientPassword" class="form-control" type="password" required>
+          <button type="submit" class="btn btn-primary" style="margin-top: 0.8rem;">Accedi</button>
+        </form>
         <p id="loginError" class="muted"></p>
+        <p class="muted">API backend corrente: <code id="loginApiBase"></code></p>
+        <p class="muted">Se il login fallisce su Pages, usa URL con <code>?api_base=https://tuo-backend</code>.</p>
       </article>
     </section>
   </main>

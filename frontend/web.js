@@ -268,7 +268,15 @@ async function initGoogleButton(targetId, onCredential) {
     const box = document.getElementById(targetId);
     if (!box) return;
 
-    const config = await fetch(`${API_BASE}/auth/google-config`).then((r) => r.json());
+    const response = await fetch(`${API_BASE}/auth/google-config`);
+    const contentType = response.headers.get('content-type') || '';
+    if (!response.ok) {
+        throw new Error(`Impossibile caricare config Google (${response.status}). Verifica api_base.`);
+    }
+    if (!contentType.includes('application/json')) {
+        throw new Error('Risposta non valida dal backend (atteso JSON). Probabile api_base non corretto.');
+    }
+    const config = await response.json();
     if (!config.enabled || !config.google_client_id) {
         throw new Error('Google Sign-In non configurato: imposta GOOGLE_CLIENT_ID nel backend (.env) e riavvia il server.');
     }
@@ -498,6 +506,11 @@ async function boot() {
 
     if (page === 'login') {
         const error = document.getElementById('loginError');
+        const apiBaseInfo = document.getElementById('loginApiBase');
+        if (apiBaseInfo) {
+            apiBaseInfo.textContent = API_BASE;
+        }
+
         try {
             await initGoogleButton('googlePatientButton', async (response) => {
                 try {
@@ -509,6 +522,27 @@ async function boot() {
             });
         } catch (err) {
             showError(error, err.message || 'Google Sign-In non disponibile');
+        }
+
+        const patientForm = document.getElementById('patientLocalLoginForm');
+        if (patientForm) {
+            patientForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                showError(error, '');
+                const username = document.getElementById('patientUsername').value;
+                const password = document.getElementById('patientPassword').value;
+                try {
+                    const res = await api('/auth/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username, password }),
+                    });
+                    setToken(res.access_token);
+                    goTo('/dashboard');
+                } catch (err) {
+                    showError(error, err.message || 'Login locale non riuscito');
+                }
+            });
         }
     }
 
