@@ -1967,8 +1967,12 @@ async function boot() {
         }
 
         const apkDownloadLink = document.getElementById('apkDownloadLink');
+        const directApkUrl = `${API_BASE}${LOCAL_APK_PATH}`;
+        const fallbackStoreUrl = appStoreUrl();
+        const useDirectApk = !isStaticPagesApiBase();
         if (apkDownloadLink) {
-            apkDownloadLink.href = `${API_BASE}${LOCAL_APK_PATH}`;
+            apkDownloadLink.href = useDirectApk ? directApkUrl : fallbackStoreUrl;
+            apkDownloadLink.textContent = useDirectApk ? 'Scarica APK locale' : 'Apri store (QR senza 404)';
         }
 
         const storeLink = document.getElementById('smartStoreLink');
@@ -1978,7 +1982,7 @@ async function boot() {
 
         const qrImage = document.getElementById('appQrImage');
         if (qrImage) {
-            qrImage.src = qrImageUrl(localApkUrl());
+            qrImage.src = qrImageUrl(useDirectApk ? directApkUrl : fallbackStoreUrl);
         }
 
         const apkQrHint = document.getElementById('apkQrHint');
@@ -1986,7 +1990,7 @@ async function boot() {
             if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
                 apkQrHint.textContent = 'Per scansione da telefono usa l\'IP LAN del PC (es. http://192.168.x.x:8000/app).';
             } else if (isStaticPagesApiBase()) {
-                apkQrHint.textContent = 'Se sei su GitHub Pages, imposta qui sopra l\'URL del backend API reale: il QR usera` quel backend per scaricare APK e sincronizzare dati.';
+                apkQrHint.textContent = 'Su GitHub Pages senza backend API, il QR apre lo store (niente 404). Per APK diretto imposta qui sopra l\'URL backend reale.';
             } else {
                 apkQrHint.textContent = 'QR configurato su backend API reale: usa questo codice per installazione e sync.';
             }
