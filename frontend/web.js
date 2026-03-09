@@ -1479,6 +1479,78 @@ function setDataQualityBadge(username) {
     badge.textContent = 'Qualita dato: simulazione demo';
 }
 
+function getDataQualityState(username) {
+    const bleInfo = readJsonStorage(userScopedKey(username, 'bridge_ble_meta'), null);
+    const manualInfo = readJsonStorage(userScopedKey(username, 'manual_biometric_meta'), null);
+    const isStatic = isStaticPagesApiBase();
+    const now = Date.now();
+    const bleRecent = bleInfo?.last_bridge_at && (now - new Date(bleInfo.last_bridge_at).getTime()) < 48 * 3600 * 1000;
+    const manualRecent = manualInfo?.last_manual_at && (now - new Date(manualInfo.last_manual_at).getTime()) < 48 * 3600 * 1000;
+
+    if (bleRecent) return { mode: 'bridge_ble', timestamp: bleInfo.last_bridge_at };
+    if (manualRecent) return { mode: 'manual', timestamp: manualInfo.last_manual_at };
+    if (!isStatic) return { mode: 'real_api', timestamp: null };
+    return { mode: 'sim_demo', timestamp: null };
+}
+
+function updateBleIndicator(mode) {
+    const dot = document.getElementById('bleIndicator');
+    const label = document.getElementById('bleIndicatorLabel');
+    if (!dot || !label) return;
+
+    dot.classList.remove('ble-indicator-on', 'ble-indicator-warn', 'ble-indicator-off');
+    if (mode === 'on') {
+        dot.classList.add('ble-indicator-on');
+        label.textContent = 'BLE: attivo';
+        return;
+    }
+    if (mode === 'warn') {
+        dot.classList.add('ble-indicator-warn');
+        label.textContent = 'BLE: parziale/fallback';
+        return;
+    }
+    dot.classList.add('ble-indicator-off');
+    label.textContent = 'BLE: non attivo';
+}
+
+function renderAlwaysOnAiPanel({ username, riskScore, hrCurrent, hrvCurrent, riskMessage }) {
+    const statusEl = document.getElementById('aiPresenceStatus');
+    const adviceEl = document.getElementById('aiPresenceAdvice');
+    if (!statusEl || !adviceEl) return;
+
+    const source = getDataQualityState(username);
+    const sourceLabel = {
+        real_api: 'reale API',
+        bridge_ble: 'bridge BLE',
+        manual: 'manuale',
+        sim_demo: 'simulazione',
+    }[source.mode] || 'sconosciuta';
+
+    const hasVitals = Number.isFinite(hrCurrent) && Number.isFinite(hrvCurrent);
+    const tips = [];
+
+    if (!hasVitals) {
+        tips.push('Dati vitali incompleti: non posso fare inferenze puntuali, usa sync o inserimento manuale.');
+    } else {
+        tips.push(`Segnali correnti disponibili: HR ${hrCurrent} bpm, HRV ${hrvCurrent} ms.`);
+    }
+
+    if (Number.isFinite(riskScore)) {
+        if (riskScore >= 0.67) tips.push('Rischio alto: resta in ambiente sicuro e riduci stimoli intensi.');
+        else if (riskScore >= 0.34) tips.push('Rischio medio: privilegia riposo, idratazione e ritmo regolare.');
+        else tips.push('Rischio basso: continua monitoraggio e routine stabile.');
+    } else {
+        tips.push('Rischio non disponibile: non posso suggerire livello di cautela basato su score.');
+    }
+
+    if (riskMessage) {
+        tips.push(`Sintesi corrente: ${riskMessage}`);
+    }
+
+    statusEl.textContent = `Stato AI: attivo 24/7 · Fonte dati: ${sourceLabel}${source.timestamp ? ` · ultimo update ${new Date(source.timestamp).toLocaleString()}` : ''}`;
+    adviceEl.innerHTML = tips.map((t) => `<li class="muted">${t}</li>`).join('');
+}
+
 function buildDiaryAiComment(entry, riskScore) {
     const type = String(entry.type || '').toLowerCase();
     const notes = String(entry.notes || '').toLowerCase();
@@ -2231,6 +2303,13 @@ async function boot() {
             medWith,
             medWithout,
         });
+        renderAlwaysOnAiPanel({
+            username: dashboardUser,
+            riskScore: lastRiskScore,
+            hrCurrent,
+            hrvCurrent,
+            riskMessage: lastRiskMessage,
+        });
         renderDiaryEntries(dashboardUser, lastRiskScore);
         evaluateAlertRules({
             username: dashboardUser,
@@ -2360,22 +2439,27 @@ async function boot() {
 
         const bleBtn = document.getElementById('wearableBleAssistBtn');
         const bleStatus = document.getElementById('wearableBleAssistStatus');
+        const bleMeta = readJsonStorage(userScopedKey(user.username || 'user', 'bridge_ble_meta'), null);
+        updateBleIndicator(bleMeta?.last_bridge_at ? 'warn' : 'off');
         if (bleBtn) {
             bleBtn.addEventListener('click', async () => {
                 bleBtn.disabled = true;
                 if (bleStatus) {
                     bleStatus.textContent = 'Apertura selettore Bluetooth...';
                 }
+                updateBleIndicator('warn');
                 try {
                     const out = await startBleAssistedBridge(user.username || 'user');
                     if (bleStatus) {
                         bleStatus.textContent = `Bridge BLE completato con ${out.deviceName} (HR ${out.hr} bpm).`;
                     }
+                    updateBleIndicator('on');
                     await renderWearableSyncStatus();
                 } catch (err) {
                     if (bleStatus) {
                         bleStatus.textContent = `Bridge BLE non riuscito: ${err.message}`;
                     }
+                    updateBleIndicator('off');
                 } finally {
                     bleBtn.disabled = false;
                 }
