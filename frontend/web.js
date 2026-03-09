@@ -29,7 +29,14 @@ function isGitHubPagesRuntime() {
 function appBasePath() {
     if (!isGitHubPagesRuntime()) return '';
     const parts = window.location.pathname.split('/').filter(Boolean);
-    return parts.length ? `/${parts[0]}` : '';
+    if (!parts.length) return '';
+
+    // If app is served from /<repo>/frontend/*.html, keep both segments.
+    if (parts.length >= 2 && parts[1] === 'frontend') {
+        return `/${parts[0]}/${parts[1]}`;
+    }
+
+    return `/${parts[0]}`;
 }
 
 function normalizeBaseUrl(url) {
