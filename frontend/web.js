@@ -1669,6 +1669,31 @@ function updateBleIndicator(mode) {
     label.textContent = 'BLE: non attivo';
 }
 
+function describeMobileBleRoute() {
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    const secure = window.isSecureContext;
+    const hasWebBluetooth = Boolean(navigator.bluetooth);
+
+    if (isIOS) {
+        return 'iPhone/iPad rilevato: Web Bluetooth non supportato in Safari. Strada consigliata: app companion (iOS) + Apple Health + sync backend.';
+    }
+
+    if (isAndroid && hasWebBluetooth && secure) {
+        return 'Android compatibile: puoi usare subito il pulsante "Attiva Bluetooth assistito" (Chrome + HTTPS).';
+    }
+
+    if (isAndroid && !secure) {
+        return 'Android rilevato ma contesto non sicuro: abilita HTTPS (o localhost) per usare Web Bluetooth.';
+    }
+
+    if (hasWebBluetooth) {
+        return 'Web Bluetooth disponibile: prova "Attiva Bluetooth assistito". Se il watch non espone GATT, usa bridge app/OAuth provider.';
+    }
+
+    return 'Web Bluetooth non disponibile su questo browser: usa bridge tramite app mobile (Health Connect/Apple Health) o integrazione OAuth provider.';
+}
+
 function renderAlwaysOnAiPanel({ username, riskScore, hrCurrent, hrvCurrent, riskMessage }) {
     const statusEl = document.getElementById('aiPresenceStatus');
     const adviceEl = document.getElementById('aiPresenceAdvice');
@@ -3000,6 +3025,10 @@ async function boot() {
 
         const bleBtn = document.getElementById('wearableBleAssistBtn');
         const bleStatus = document.getElementById('wearableBleAssistStatus');
+        const mobileBleRouteStatus = document.getElementById('mobileBleRouteStatus');
+        if (mobileBleRouteStatus) {
+            mobileBleRouteStatus.textContent = describeMobileBleRoute();
+        }
         const bleMeta = readJsonStorage(userScopedKey(user.username || 'user', 'bridge_ble_meta'), null);
         updateBleIndicator(bleMeta?.last_bridge_at ? 'warn' : 'off');
         if (bleBtn) {
