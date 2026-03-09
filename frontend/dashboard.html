@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard Paziente - Epilessia Platform</title>
   <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body data-page="dashboard" class="page">
   <header class="topbar">
@@ -41,6 +42,7 @@
         <article class="card">
           <h3>Storico rischio (ultime 24h)</h3>
           <p class="muted">Andamento orario per capire se stai migliorando.</p>
+          <canvas id="riskMainChart" height="130"></canvas>
           <div id="riskHistoryList" class="demo-form"></div>
         </article>
         <article class="card">
@@ -48,6 +50,55 @@
           <p class="muted">Raccomandazioni pratiche basate su rischio, sonno e aderenza terapia.</p>
           <ul id="aiTips" class="demo-form"></ul>
           <a href="/dashboard-v2" class="btn btn-outline">Apri dashboard avanzata</a>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="grid-2">
+        <article class="card">
+          <h3>Eventi clinici (aura/crisi/sintomi)</h3>
+          <form id="clinicalEventForm" class="demo-form">
+            <label for="eventType">Tipo evento</label>
+            <select id="eventType" class="form-control">
+              <option value="aura">Aura</option>
+              <option value="seizure">Crisi</option>
+              <option value="symptom">Sintomo</option>
+            </select>
+            <label for="eventIntensity">Intensita` (1-10)</label>
+            <input id="eventIntensity" class="form-control" type="number" min="1" max="10" value="5">
+            <label for="eventWhen">Data/Ora</label>
+            <input id="eventWhen" class="form-control" type="datetime-local">
+            <label for="eventNotes">Note</label>
+            <textarea id="eventNotes" class="form-control" rows="2" placeholder="Descrivi trigger o sintomi"></textarea>
+            <button type="submit" class="btn btn-primary">Aggiungi evento</button>
+          </form>
+        </article>
+        <article class="card">
+          <h3>Timeline eventi</h3>
+          <p class="muted">Ultimi eventi registrati localmente nella web app.</p>
+          <div id="eventTimeline" class="demo-form"></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="grid-2">
+        <article class="card">
+          <h3>Reminder terapia</h3>
+          <form id="therapyReminderForm" class="demo-form">
+            <label for="reminderMedication">Farmaco</label>
+            <input id="reminderMedication" class="form-control" type="text" placeholder="es. Levetiracetam" required>
+            <label for="reminderTime">Orario giornaliero</label>
+            <input id="reminderTime" class="form-control" type="time" required>
+            <button type="submit" class="btn btn-primary">Attiva reminder</button>
+          </form>
+          <button id="notificationPermissionBtn" class="btn btn-outline" style="margin-top: 0.6rem;">Abilita notifiche browser</button>
+        </article>
+        <article class="card">
+          <h3>Reminder attivi</h3>
+          <div id="reminderList" class="demo-form"></div>
+          <button id="exportPdfBtn" class="btn btn-secondary" style="margin-top: 0.6rem;">Esporta report PDF (stampa)</button>
         </article>
       </div>
     </section>

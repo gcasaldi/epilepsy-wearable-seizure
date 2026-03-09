@@ -96,6 +96,8 @@ function patchInternalLinks() {
 }
 
 const API_BASE = resolveApiBase();
+let riskChart = null;
+const reminderTimers = {};
 
 function isStaticPagesApiBase() {
     return API_BASE.includes('github.io');
@@ -575,16 +577,22 @@ async function renderWearableProviders() {
 
     try {
         const providers = await api('/api/wearable/providers');
-        summaryEl.textContent = `${providers.connected} su ${providers.total} provider collegati.`;
+        summaryEl.textContent = isStaticPagesApiBase()
+            ? `Modalita demo locale: ${providers.connected} su ${providers.total} provider simulati. Per connessione reale imposta un backend API.`
+            : `${providers.connected} su ${providers.total} provider collegati.`;
 
         container.innerHTML = providers.items.map((item) => {
             const connectAction = item.connected
                 ? `<button class="btn btn-outline" data-provider-disconnect="${item.provider_key}">Disconnetti</button>`
-                : `<button class="btn" data-provider-connect="${item.provider_key}" data-provider-mode="${item.supported_mode === 'oauth' ? 'oauth' : 'demo'}">Collega</button>`;
+                : `<button class="btn" data-provider-connect="${item.provider_key}" data-provider-mode="${item.supported_mode === 'oauth' ? 'oauth' : 'demo'}">${isStaticPagesApiBase() ? 'Simula collegamento' : 'Collega'}</button>`;
 
             const oauthHelp = item.supported_mode === 'oauth'
                 ? '<p class="muted">Modalita`: OAuth diretto (attiva con credenziali provider).</p>'
                 : '<p class="muted">Modalita`: bridge/app companion.</p>';
+
+            const runtimeHelp = isStaticPagesApiBase()
+                ? '<p class="muted">Stai usando Pages statico: collegamento reale non possibile senza backend API.</p>'
+                : '';
 
             return `
                 <article class="card">
@@ -592,6 +600,7 @@ async function renderWearableProviders() {
                     <p class="muted">Categoria: ${item.category} · Integrazione: ${providerModeLabel(item.supported_mode)}</p>
                     <p>${providerStatusTag(item)}</p>
                     ${oauthHelp}
+                    ${runtimeHelp}
                     ${connectAction}
                 </article>
             `;
@@ -824,6 +833,51 @@ function riskLabel(score) {
     return 'LOW';
 }
 
+function renderRiskChart(items) {
+    const canvas = document.getElementById('riskMainChart');
+    if (!canvas || typeof Chart === 'undefined' || !items?.length) return;
+
+    const labels = items.slice(0, 12).reverse().map((item) =>
+        new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    );
+    const values = items.slice(0, 12).reverse().map((item) => Number(item.risk_score || 0));
+
+    if (riskChart) {
+        riskChart.destroy();
+    }
+
+    riskChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: 'Rischio',
+                    data: values,
+                    borderColor: '#00f2ff',
+                    backgroundColor: 'rgba(0,242,255,0.2)',
+                    fill: true,
+                    tension: 0.3,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    min: 0,
+                    max: 1,
+                },
+            },
+            plugins: {
+                legend: {
+                    labels: { color: '#cfd3da' },
+                },
+            },
+        },
+    });
+}
+
 function renderRiskHistory(items) {
     const list = document.getElementById('riskHistoryList');
     if (!list) return;
@@ -847,6 +901,126 @@ function renderRiskHistory(items) {
             </div>
         `;
     }).join('');
+}
+
+function readDashboardList(username, key) {
+    return readJsonStorage(userScopedKey(username, key), []);
+}
+
+function writeDashboardList(username, key, value) {
+    writeJsonStorage(userScopedKey(username, key), value);
+}
+
+function renderEventTimeline(events, onDelete) {
+    const timeline = document.getElementById('eventTimeline');
+    if (!timeline) return;
+    if (!events.length) {
+        timeline.innerHTML = '<p class="muted">Nessun evento registrato.</p>';
+        return;
+    }
+    timeline.innerHTML = events.map((ev) => `
+        <div class="card" style="padding:0.6rem; margin-bottom:0.5rem;">
+          <div style="display:flex; justify-content:space-between; gap:0.6rem; align-items:center;">
+            <div>
+              <strong>${ev.type.toUpperCase()}</strong>
+              <p class="muted">Intensita: ${ev.intensity} · ${new Date(ev.when).toLocaleString()}</p>
+              <p class="muted">${ev.notes || 'Nessuna nota'}</p>
+            </div>
+            <button class="btn btn-outline" data-event-delete="${ev.id}">Elimina</button>
+          </div>
+        </div>
+    `).join('');
+    timeline.querySelectorAll('[data-event-delete]').forEach((btn) => {
+        btn.addEventListener('click', () => onDelete(btn.getAttribute('data-event-delete')));
+    });
+}
+
+function minutesUntilNext(timeValue) {
+    const [hh, mm] = timeValue.split(':').map((v) => Number(v));
+    const now = new Date();
+    const target = new Date();
+    target.setHours(hh, mm, 0, 0);
+    if (target <= now) {
+        target.setDate(target.getDate() + 1);
+    }
+    return Math.max(1, Math.round((target.getTime() - now.getTime()) / 60000));
+}
+
+function scheduleReminder(username, reminder) {
+    const key = `${username}:${reminder.id}`;
+    if (reminderTimers[key]) {
+        clearTimeout(reminderTimers[key]);
+    }
+    const delay = minutesUntilNext(reminder.time) * 60 * 1000;
+    reminderTimers[key] = setTimeout(() => {
+        const message = `Promemoria terapia: ${reminder.medication} alle ${reminder.time}`;
+        if (Notification.permission === 'granted') {
+            new Notification('Epiguard Reminder', { body: message });
+        } else {
+            alert(message);
+        }
+        scheduleReminder(username, reminder);
+    }, delay);
+}
+
+function renderReminderList(username, reminders, onDelete) {
+    const list = document.getElementById('reminderList');
+    if (!list) return;
+    if (!reminders.length) {
+        list.innerHTML = '<p class="muted">Nessun reminder attivo.</p>';
+        return;
+    }
+    list.innerHTML = reminders.map((r) => `
+        <div class="card" style="padding:0.6rem; margin-bottom:0.5rem;">
+          <div style="display:flex; justify-content:space-between; gap:0.6rem; align-items:center;">
+            <div>
+              <strong>${r.medication}</strong>
+              <p class="muted">Ogni giorno alle ${r.time}</p>
+            </div>
+            <button class="btn btn-outline" data-reminder-delete="${r.id}">Disattiva</button>
+          </div>
+        </div>
+    `).join('');
+    list.querySelectorAll('[data-reminder-delete]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const id = btn.getAttribute('data-reminder-delete');
+            const timerKey = `${username}:${id}`;
+            if (reminderTimers[timerKey]) {
+                clearTimeout(reminderTimers[timerKey]);
+                delete reminderTimers[timerKey];
+            }
+            onDelete(id);
+        });
+    });
+}
+
+function openPrintableReport({ username, riskScore, riskMessage, therapies, events }) {
+    const win = window.open('', '_blank', 'noopener');
+    if (!win) {
+        alert('Popup bloccato: abilita popup per esportare il report PDF.');
+        return;
+    }
+    const html = `
+      <html>
+      <head><title>Report Epiguard</title></head>
+      <body style="font-family:Arial,sans-serif;padding:24px;">
+        <h1>Report Paziente</h1>
+        <p><strong>Utente:</strong> ${username}</p>
+        <p><strong>Rischio attuale:</strong> ${(riskScore * 100).toFixed(1)}% (${riskLabel(riskScore)})</p>
+        <p><strong>Messaggio AI:</strong> ${riskMessage}</p>
+        <h2>Terapia</h2>
+        <ul>${therapies.map((t) => `<li>${t.medication_name} ${t.dosage || ''} ${t.intake_time || ''}</li>`).join('')}</ul>
+        <h2>Eventi clinici</h2>
+        <ul>${events.map((e) => `<li>${new Date(e.when).toLocaleString()} - ${e.type} (intensita ${e.intensity}) ${e.notes || ''}</li>`).join('')}</ul>
+        <p style="margin-top:24px;font-size:12px;color:#666;">Documento generato dalla web app Epiguard.</p>
+      </body>
+      </html>
+    `;
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    win.print();
 }
 
 function buildAiTips({ riskText, riskScore, therapies }) {
@@ -1152,6 +1326,11 @@ async function boot() {
 
         let lastRiskScore = 0;
         let lastRiskMessage = '';
+        const dashboardUser = user.username || 'user';
+
+        let therapiesState = [];
+        let eventsState = readDashboardList(dashboardUser, 'events');
+        let remindersState = readDashboardList(dashboardUser, 'reminders');
 
         try {
             const prediction = await api('/api/test');
@@ -1165,6 +1344,7 @@ async function boot() {
 
         try {
             const history = await api('/api/risk-history');
+            renderRiskChart(history);
             renderRiskHistory(history);
             if (history.length) {
                 lastRiskScore = Number(history[0].risk_score || lastRiskScore);
@@ -1176,11 +1356,12 @@ async function boot() {
         const refreshTherapies = async () => {
             try {
                 const therapies = await api('/api/therapies');
+                therapiesState = therapies;
                 renderTherapyList(therapies, async (therapyId) => {
                     await api(`/api/therapies/${therapyId}`, { method: 'DELETE' });
                     await refreshTherapies();
                 });
-                renderAiTips(buildAiTips({ riskText: lastRiskMessage, riskScore: lastRiskScore, therapies }));
+                renderAiTips(buildAiTips({ riskText: lastRiskMessage, riskScore: lastRiskScore, therapies: therapiesState }));
             } catch {
                 renderTherapyList([], () => {});
             }
@@ -1205,7 +1386,89 @@ async function boot() {
             });
         }
 
+        const refreshEvents = () => {
+            eventsState = readDashboardList(dashboardUser, 'events')
+                .sort((a, b) => new Date(b.when).getTime() - new Date(a.when).getTime());
+            renderEventTimeline(eventsState, (eventId) => {
+                const filtered = eventsState.filter((ev) => ev.id !== eventId);
+                writeDashboardList(dashboardUser, 'events', filtered);
+                refreshEvents();
+            });
+            renderAiTips(buildAiTips({ riskText: lastRiskMessage, riskScore: lastRiskScore, therapies: therapiesState }));
+        };
+
+        const clinicalForm = document.getElementById('clinicalEventForm');
+        if (clinicalForm) {
+            clinicalForm.addEventListener('submit', (event) => {
+                event.preventDefault();
+                const next = {
+                    id: `ev-${Date.now()}`,
+                    type: document.getElementById('eventType').value,
+                    intensity: Number(document.getElementById('eventIntensity').value || 1),
+                    when: document.getElementById('eventWhen').value || new Date().toISOString(),
+                    notes: document.getElementById('eventNotes').value.trim(),
+                };
+                const list = readDashboardList(dashboardUser, 'events');
+                list.push(next);
+                writeDashboardList(dashboardUser, 'events', list);
+                clinicalForm.reset();
+                refreshEvents();
+            });
+        }
+
+        const refreshReminders = () => {
+            remindersState = readDashboardList(dashboardUser, 'reminders');
+            renderReminderList(dashboardUser, remindersState, (id) => {
+                const filtered = remindersState.filter((r) => r.id !== id);
+                writeDashboardList(dashboardUser, 'reminders', filtered);
+                refreshReminders();
+            });
+            remindersState.forEach((r) => scheduleReminder(dashboardUser, r));
+        };
+
+        const reminderForm = document.getElementById('therapyReminderForm');
+        if (reminderForm) {
+            reminderForm.addEventListener('submit', (event) => {
+                event.preventDefault();
+                const medication = document.getElementById('reminderMedication').value.trim();
+                const time = document.getElementById('reminderTime').value;
+                if (!medication || !time) return;
+                const list = readDashboardList(dashboardUser, 'reminders');
+                list.push({ id: `rem-${Date.now()}`, medication, time });
+                writeDashboardList(dashboardUser, 'reminders', list);
+                reminderForm.reset();
+                refreshReminders();
+            });
+        }
+
+        const permBtn = document.getElementById('notificationPermissionBtn');
+        if (permBtn) {
+            permBtn.addEventListener('click', async () => {
+                if (!('Notification' in window)) {
+                    alert('Notifiche browser non supportate su questo dispositivo.');
+                    return;
+                }
+                const perm = await Notification.requestPermission();
+                alert(`Stato notifiche: ${perm}`);
+            });
+        }
+
+        const exportBtn = document.getElementById('exportPdfBtn');
+        if (exportBtn) {
+            exportBtn.addEventListener('click', () => {
+                openPrintableReport({
+                    username: dashboardUser,
+                    riskScore: lastRiskScore,
+                    riskMessage: lastRiskMessage,
+                    therapies: therapiesState,
+                    events: eventsState,
+                });
+            });
+        }
+
         await refreshTherapies();
+        refreshEvents();
+        refreshReminders();
     }
 
     if (page === 'consents') {
