@@ -1,152 +1,56 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>La Mia Terapia - Epiguard</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>La Mia Terapia - Epiguard</title>
+  <link rel="stylesheet" href="style.css">
 </head>
-<body>
-    <header>
-        <h1>La Mia Terapia</h1>
-        <nav>
-            <a href="/dashboard">Dashboard</a>
-            <a href="/therapy">Terapia</a>
-            <a href="/settings">Impostazioni</a>
-            <a href="#" id="logout-btn">Logout</a>
-        </nav>
-    </header>
+<body data-page="therapy" class="page">
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a href="/" class="brand">Epilessia Platform</a>
+      <nav class="nav">
+        <a href="/dashboard" class="nav-link">Dashboard</a>
+        <a href="/therapy" class="nav-link">Terapia</a>
+        <a href="/settings" class="nav-link">Impostazioni</a>
+        <a href="/login" class="nav-link" data-nav-login>Accedi</a>
+        <button class="btn btn-secondary hidden" data-nav-logout>Esci</button>
+        <span class="nav-link hidden" data-user-badge></span>
+      </nav>
+    </div>
+  </header>
 
-    <main>
-        <section id="therapy-list">
-            <h2>I Miei Farmaci</h2>
-            <ul id="medications">
-                <!-- i farmaci verranno inseriti qui dinamicamente -->
-            </ul>
-        </section>
+  <main class="container">
+    <section class="page-head">
+      <h1>Terapia paziente</h1>
+      <p class="muted">Aggiungi uno o piu` farmaci e gestisci il piano giornaliero.</p>
+    </section>
 
-        <section id="add-therapy">
-            <h2>Aggiungi Farmaco</h2>
-            <form id="add-medication-form">
-                <label for="medication-name">Nome Farmaco:</label>
-                <input type="text" id="medication-name" name="medication-name" required>
+    <section class="grid-2 section">
+      <article class="card">
+        <h3>Aggiungi Farmaco</h3>
+        <form id="add-medication-form" class="demo-form">
+          <label for="medication-name">Nome Farmaco</label>
+          <input type="text" id="medication-name" class="form-control" required>
 
-                <label for="medication-dosage">Dosaggio (es. 50mg):</label>
-                <input type="text" id="medication-dosage" name="medication-dosage">
+          <label for="medication-dosage">Dosaggio (es. 6mg)</label>
+          <input type="text" id="medication-dosage" class="form-control">
 
-                <label for="medication-time">Orario Assunzione:</label>
-                <input type="time" id="medication-time" name="medication-time">
+          <label for="medication-time">Orario Assunzione</label>
+          <input type="time" id="medication-time" class="form-control">
 
-                <button type="submit">Aggiungi</button>
-            </form>
-        </section>
-    </main>
+          <button type="submit" class="btn btn-primary">Aggiungi</button>
+        </form>
+      </article>
 
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const token = localStorage.getItem('authToken') || localStorage.getItem('accessToken');
-            const params = new URLSearchParams(window.location.search);
-            const queryApi = params.get('api_base');
-            if (queryApi && /^https?:\/\//i.test(queryApi)) {
-                localStorage.setItem('epiguard_api_base', queryApi.replace(/\/$/, ''));
-            }
-            const apiBase = (localStorage.getItem('epiguard_api_base') || window.location.origin).replace(/\/$/, '');
-            const isPages = window.location.hostname.endsWith('github.io');
-            const basePath = isPages ? `/${window.location.pathname.split('/').filter(Boolean)[0] || ''}`.replace(/\/$/, '') : '';
-            const appPath = (route) => {
-                if (!isPages) return route;
-                const map = {
-                    '/login': 'login.html',
-                    '/dashboard': 'dashboard.html',
-                    '/therapy': 'therapy.html',
-                    '/settings': 'settings.html'
-                };
-                return `${basePath}/${map[route] || 'index.html'}`;
-            };
-            if (!token) {
-                window.location.href = appPath('/login');
-                return;
-            }
+      <article class="card">
+        <h3>I tuoi farmaci</h3>
+        <div id="medications" class="demo-form"></div>
+      </article>
+    </section>
+  </main>
 
-            const headers = { 'Authorization': `Bearer ${token}` };
-
-            const loadTherapies = async () => {
-                try {
-                    const response = await fetch(`${apiBase}/api/therapies`, { headers });
-                    if (response.ok) {
-                        const therapies = await response.json();
-                        const medicationsList = document.getElementById('medications');
-                        medicationsList.innerHTML = '';
-                        therapies.forEach(therapy => {
-                            const li = document.createElement('li');
-                            li.textContent = `${therapy.medication_name} - ${therapy.dosage || ''} - ${therapy.intake_time || ''}`;
-                            const deleteButton = document.createElement('button');
-                            deleteButton.textContent = 'Elimina';
-                            deleteButton.onclick = () => deleteTherapy(therapy.id);
-                            li.appendChild(deleteButton);
-                            medicationsList.appendChild(li);
-                        });
-                    } else {
-                        console.error('Errore nel caricamento delle terapie');
-                    }
-                } catch (error) {
-                    console.error('Errore di rete:', error);
-                }
-            };
-
-            const addTherapy = async (event) => {
-                event.preventDefault();
-                const form = event.target;
-                const data = {
-                    medication_name: form['medication-name'].value,
-                    dosage: form['medication-dosage'].value,
-                    intake_time: form['medication-time'].value,
-                };
-
-                try {
-                    const response = await fetch(`${apiBase}/api/therapies`, {
-                        method: 'POST',
-                        headers: { ...headers, 'Content-Type': 'application/json' },
-                        body: JSON.stringify(data),
-                    });
-
-                    if (response.ok) {
-                        loadTherapies();
-                        form.reset();
-                    } else {
-                        console.error('Errore nell\'aggiunta della terapia');
-                    }
-                } catch (error) {
-                    console.error('Errore di rete:', error);
-                }
-            };
-
-            const deleteTherapy = async (therapyId) => {
-                try {
-                    const response = await fetch(`${apiBase}/api/therapies/${therapyId}`, {
-                        method: 'DELETE',
-                        headers,
-                    });
-
-                    if (response.ok) {
-                        loadTherapies();
-                    } else {
-                        console.error('Errore nell\'eliminazione della terapia');
-                    }
-                } catch (error) {
-                    console.error('Errore di rete:', error);
-                }
-            };
-
-            document.getElementById('add-medication-form').addEventListener('submit', addTherapy);
-            document.getElementById('logout-btn').addEventListener('click', () => {
-                localStorage.removeItem('authToken');
-                localStorage.removeItem('accessToken');
-                window.location.href = appPath('/login');
-            });
-
-            loadTherapies();
-        });
-    </script>
+  <script src="web.js"></script>
 </body>
 </html>

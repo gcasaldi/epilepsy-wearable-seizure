@@ -1129,12 +1129,12 @@ async function initLandingDemo() {
             }
 
             try {
-                watchStatus.textContent = 'Ricerca smartwatch...';
+                watchStatus.textContent = 'Apertura selettore Bluetooth (tutti i dispositivi)...';
                 const device = await navigator.bluetooth.requestDevice({
-                    filters: [{ services: ['heart_rate'] }],
-                    optionalServices: ['battery_service'],
+                    acceptAllDevices: true,
+                    optionalServices: ['heart_rate', 'battery_service'],
                 });
-                watchStatus.textContent = `Smartwatch collegato: ${device.name || 'dispositivo BLE'}.`;
+                watchStatus.textContent = `Dispositivo selezionato: ${device.name || 'BLE sconosciuto'}. Alcuni smartwatch richiedono app companion per dati completi.`;
             } catch (err) {
                 watchStatus.textContent = `Connessione annullata/non riuscita: ${err.message}`;
             }
@@ -1530,6 +1530,74 @@ async function boot() {
         } catch {
             list.innerHTML = '<div class="card"><p class="muted">Impossibile caricare i consensi.</p></div>';
         }
+    }
+
+    if (page === 'therapy') {
+        const user = await requireAuth(['personal']);
+        if (!user) return;
+
+        const listBox = document.getElementById('medications');
+        const form = document.getElementById('add-medication-form');
+
+        const renderTherapiesOnPage = (therapies) => {
+            if (!listBox) return;
+            if (!therapies.length) {
+                listBox.innerHTML = '<p class="muted">Nessun farmaco inserito.</p>';
+                return;
+            }
+            listBox.innerHTML = therapies.map((therapy) => `
+                <div class="card" style="padding:0.7rem; margin-bottom:0.5rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.6rem;">
+                        <div>
+                            <strong>${therapy.medication_name}</strong>
+                            <p class="muted">${therapy.dosage || 'Dosaggio non inserito'} ${therapy.intake_time ? `· ${therapy.intake_time}` : ''}</p>
+                        </div>
+                        <button class="btn btn-outline" data-therapy-delete="${therapy.id}">Elimina</button>
+                    </div>
+                </div>
+            `).join('');
+
+            listBox.querySelectorAll('[data-therapy-delete]').forEach((btn) => {
+                btn.addEventListener('click', async () => {
+                    const therapyId = btn.getAttribute('data-therapy-delete');
+                    await api(`/api/therapies/${therapyId}`, { method: 'DELETE' });
+                    await loadTherapiesPage();
+                });
+            });
+        };
+
+        const loadTherapiesPage = async () => {
+            try {
+                const therapies = await api('/api/therapies');
+                renderTherapiesOnPage(therapies);
+            } catch (err) {
+                if (listBox) listBox.innerHTML = `<p class="muted">Errore caricamento terapie: ${err.message}</p>`;
+            }
+        };
+
+        if (form) {
+            form.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const medication_name = document.getElementById('medication-name').value.trim();
+                const dosage = document.getElementById('medication-dosage').value.trim();
+                const intake_time = document.getElementById('medication-time').value;
+                if (!medication_name) return;
+
+                await api('/api/therapies', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        medication_name,
+                        dosage: dosage || null,
+                        intake_time: intake_time || null,
+                    }),
+                });
+                form.reset();
+                await loadTherapiesPage();
+            });
+        }
+
+        await loadTherapiesPage();
     }
 
     if (page === 'settings') {
