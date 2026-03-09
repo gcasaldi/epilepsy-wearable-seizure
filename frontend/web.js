@@ -1,5 +1,6 @@
 const TOKEN_KEY = 'authToken';
 const API_BASE_STORAGE_KEY = 'epiguard_api_base';
+const LOCAL_USERS_KEY = 'epiguard_local_users';
 
 const ROUTE_TO_PAGE = {
     '/': 'index.html',
@@ -96,6 +97,115 @@ function patchInternalLinks() {
 
 const API_BASE = resolveApiBase();
 
+function isStaticPagesApiBase() {
+    return API_BASE.includes('github.io');
+}
+
+function parseJsonBody(body) {
+    if (!body) return {};
+    if (typeof body === 'string') {
+        try {
+            return JSON.parse(body);
+        } catch {
+            return {};
+        }
+    }
+    return body;
+}
+
+function getLocalUsers() {
+    try {
+        return JSON.parse(localStorage.getItem(LOCAL_USERS_KEY) || '[]');
+    } catch {
+        return [];
+    }
+}
+
+function setLocalUsers(users) {
+    localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(users));
+}
+
+function makeLocalToken(email) {
+    return `local.${btoa(email)}`;
+}
+
+function getLocalEmailFromToken() {
+    const token = getToken();
+    if (!token || !token.startsWith('local.')) return null;
+    const encoded = token.split('.', 2)[1];
+    try {
+        return atob(encoded);
+    } catch {
+        return null;
+    }
+}
+
+async function localApiFallback(path, options = {}) {
+    const method = (options.method || 'GET').toUpperCase();
+    const payload = parseJsonBody(options.body);
+
+    if (path === '/auth/register' && method === 'POST') {
+        const email = String(payload.email || '').trim().toLowerCase();
+        const password = String(payload.password || '');
+        if (!email || !email.includes('@')) {
+            throw new Error('Email non valida');
+        }
+        if (password.length < 8) {
+            throw new Error('Password troppo corta (min 8 caratteri)');
+        }
+
+        const users = getLocalUsers();
+        if (users.some((u) => u.email === email)) {
+            throw new Error("Account gia' registrato");
+        }
+
+        users.push({ email, password, created_at: new Date().toISOString() });
+        setLocalUsers(users);
+        return {
+            access_token: makeLocalToken(email),
+            token_type: 'bearer',
+            expires_in: 60 * 60 * 24,
+            username: email,
+            mode: 'local-pages-fallback',
+        };
+    }
+
+    if (path === '/auth/login' && method === 'POST') {
+        const username = String(payload.username || '').trim().toLowerCase();
+        const password = String(payload.password || '');
+        const users = getLocalUsers();
+        const found = users.find((u) => u.email === username && u.password === password);
+        if (!found) {
+            throw new Error('Credenziali non valide');
+        }
+        return {
+            access_token: makeLocalToken(found.email),
+            token_type: 'bearer',
+            expires_in: 60 * 60 * 24,
+            username: found.email,
+            mode: 'local-pages-fallback',
+        };
+    }
+
+    if (path === '/api/me' && method === 'GET') {
+        const email = getLocalEmailFromToken();
+        if (!email) {
+            throw new Error('Sessione non valida');
+        }
+        return {
+            username: email,
+            account_type: 'personal',
+            provider_status: null,
+            account_active: true,
+            authenticated: true,
+            timestamp: new Date().toISOString(),
+            mode: 'local-pages-fallback',
+        };
+    }
+
+    return null;
+}
+
 function getToken() {
     return localStorage.getItem(TOKEN_KEY);
 }
@@ -109,6 +219,13 @@ function clearSession() {
 }
 
 async function api(path, options = {}) {
+    if (isStaticPagesApiBase()) {
+        const localResult = await localApiFallback(path, options);
+        if (localResult) {
+            return localResult;
+        }
+    }
+
     const headers = options.headers || {};
     const token = getToken();
     if (token) {
@@ -124,7 +241,10 @@ async function api(path, options = {}) {
     const payload = contentType.includes('application/json') ? await response.json() : {};
 
     if (!response.ok) {
-        throw new Error(payload.message || payload.detail || `Errore ${response.status}`);
+        const nonJsonHint = !contentType.includes('application/json')
+            ? ' Endpoint backend non raggiungibile o api_base non corretto.'
+            : '';
+        throw new Error((payload.message || payload.detail || `Errore ${response.status}`) + nonJsonHint);
     }
 
     return payload;
@@ -514,8 +634,33 @@ async function boot() {
     if (page === 'login') {
         const error = document.getElementById('loginError');
         const apiBaseInfo = document.getElementById('loginApiBase');
+        const apiBaseInput = document.getElementById('apiBaseInput');
         if (apiBaseInfo) {
             apiBaseInfo.textContent = API_BASE;
+        }
+        if (apiBaseInput) {
+            apiBaseInput.value = localStorage.getItem(API_BASE_STORAGE_KEY) || '';
+        }
+
+        const apiBaseForm = document.getElementById('apiBaseForm');
+        if (apiBaseForm) {
+            apiBaseForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const raw = (apiBaseInput?.value || '').trim();
+                if (!raw) {
+                    localStorage.removeItem(API_BASE_STORAGE_KEY);
+                    window.location.reload();
+                    return;
+                }
+
+                if (!/^https?:\/\//i.test(raw)) {
+                    showError(error, 'Inserisci un URL valido che inizi con http:// o https://');
+                    return;
+                }
+
+                localStorage.setItem(API_BASE_STORAGE_KEY, raw.replace(/\/$/, ''));
+                window.location.reload();
+            });
         }
 
         try {

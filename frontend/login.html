@@ -50,6 +50,12 @@
         <p id="loginError" class="muted"></p>
         <p class="muted">API backend corrente: <code id="loginApiBase"></code></p>
         <p class="muted">Se il login fallisce su Pages, usa URL con <code>?api_base=https://tuo-backend</code>.</p>
+        <form id="apiBaseForm" class="demo-form" style="text-align: left; margin-top: 0.8rem;">
+          <label for="apiBaseInput">Imposta backend API (opzionale)</label>
+          <input id="apiBaseInput" class="form-control" type="url" placeholder="https://api.tuodominio.it">
+          <button type="submit" class="btn btn-secondary" style="margin-top: 0.8rem;">Salva backend API</button>
+        </form>
+        <p class="muted">Se lasci vuoto su GitHub Pages, userai la modalita` locale demo (registrazione/login nel browser).</p>
       </article>
     </section>
   </main>
