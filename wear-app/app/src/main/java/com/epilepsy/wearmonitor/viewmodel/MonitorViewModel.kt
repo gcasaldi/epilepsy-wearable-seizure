@@ -3,10 +3,9 @@ package com.epilepsy.wearmonitor.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.epilepsy.wearmonitor.alert.AlertManager
 import com.epilepsy.wearmonitor.data.ApiClient
-import com.epilepsy.wearmonitor.data.PhoneBridge
 import com.epilepsy.wearmonitor.data.PhysiologicalData
+import com.epilepsy.wearmonitor.service.MonitoringService
 import com.epilepsy.wearmonitor.sensor.HealthSensorManager
 import com.epilepsy.wearmonitor.sensor.TelemetrySnapshot
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,13 +19,9 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
 
     private val apiClient = ApiClient()
     private val sensorManager = HealthSensorManager(application)
-    private val phoneBridge = PhoneBridge(application)
-    private val alertManager = AlertManager(application)
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
-
-    private var lastHighRiskAlertAt = 0L
 
     // ... (LocalPrediction and UiState data classes remain the same)
     private data class LocalPrediction(
@@ -94,11 +89,13 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
     fun startMonitoring() {
         _uiState.value = _uiState.value.copy(isMonitoring = true, lastError = null)
         sensorManager.startMonitoring(viewModelScope)
+        MonitoringService.start(getApplication())
     }
 
     fun stopMonitoring() {
         _uiState.value = _uiState.value.copy(isMonitoring = false)
         sensorManager.stopMonitoring()
+        MonitoringService.stop(getApplication())
     }
 
     private fun updateUiFromSnapshot(snapshot: TelemetrySnapshot) {
@@ -159,30 +156,7 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
                 lastError = if (remotePrediction == null) "Backend non raggiungibile: uso stima locale" else null
             )
 
-            runCatching {
-                phoneBridge.sendTelemetry(
-                    snapshot = snapshot,
-                    riskLevel = effectivePrediction.riskLevel,
-                    riskScore = effectivePrediction.riskScore
-                )
-            }
-
-            val now = System.currentTimeMillis()
-            val isHighRisk = effectivePrediction.riskLevel == "high"
-            val canAlert = now - lastHighRiskAlertAt > 60_000
-
-            if (isHighRisk && canAlert) {
-                lastHighRiskAlertAt = now
-                alertManager.triggerHighRiskAlert()
-                runCatching {
-                    phoneBridge.sendAlert(
-                        title = "Rischio crisi elevato",
-                        message = effectivePrediction.message,
-                        riskLevel = effectivePrediction.riskLevel,
-                        riskScore = effectivePrediction.riskScore
-                    )
-                }
-            }
+            // Alert e invio telemetria in background sono gestiti dal MonitoringService.
         }
     }
 

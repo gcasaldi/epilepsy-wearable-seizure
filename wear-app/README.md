@@ -13,6 +13,7 @@ App nativa Android per smartwatch Wear OS che monitora parametri fisiologici, pr
 - ✅ UI ottimizzata per schermi circolari
 - ✅ Monitoraggio continuo in background
 - ✅ Alert vibrante su watch + messaggio alert verso telefono
+- ✅ Campionamento/valutazione autonoma ogni 5 minuti direttamente da watch app
 
 ## 📋 Prerequisiti
 
@@ -65,8 +66,18 @@ Clicca sul pulsante ▶️ Run in Android Studio
 1. **Primo avvio**: L'app richiede il login
 2. **Login automatico**: Credenziali salvate (admin / EpilepSy2025!Secure)
 3. **Start Monitoring**: Avvia la lettura sensori
-4. **Visualizzazione rischio**: Aggiornamento continuo ogni 5 secondi
+4. **Visualizzazione rischio**: Aggiornamento continuo in UI + ciclo autonomo ogni 5 minuti in foreground service
 5. **Stop**: Ferma il monitoraggio
+
+### Modalita autonoma (senza PC/web aperto)
+
+- Quando premi `START MONITOR`, il watch avvia `MonitoringService` in foreground.
+- Il servizio resta attivo in background e ogni 5 minuti:
+	- legge lo snapshot sensori disponibile,
+	- calcola/recupera rischio,
+	- invia telemetria al telefono (Data Layer),
+	- genera alert locale su watch per rischio alto o stato di tensione (HR alto + HRV bassa).
+- Se il watch viene riavviato, il servizio riparte automaticamente se era attivo prima del reboot.
 
 ## 🔧 Troubleshooting
 
