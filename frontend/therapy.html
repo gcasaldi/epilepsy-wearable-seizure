@@ -44,9 +44,27 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            const token = localStorage.getItem('accessToken');
+            const token = localStorage.getItem('authToken') || localStorage.getItem('accessToken');
+            const params = new URLSearchParams(window.location.search);
+            const queryApi = params.get('api_base');
+            if (queryApi && /^https?:\/\//i.test(queryApi)) {
+                localStorage.setItem('epiguard_api_base', queryApi.replace(/\/$/, ''));
+            }
+            const apiBase = (localStorage.getItem('epiguard_api_base') || window.location.origin).replace(/\/$/, '');
+            const isPages = window.location.hostname.endsWith('github.io');
+            const basePath = isPages ? `/${window.location.pathname.split('/').filter(Boolean)[0] || ''}`.replace(/\/$/, '') : '';
+            const appPath = (route) => {
+                if (!isPages) return route;
+                const map = {
+                    '/login': 'login.html',
+                    '/dashboard': 'dashboard.html',
+                    '/therapy': 'therapy.html',
+                    '/settings': 'settings.html'
+                };
+                return `${basePath}/${map[route] || 'index.html'}`;
+            };
             if (!token) {
-                window.location.href = '/login';
+                window.location.href = appPath('/login');
                 return;
             }
 
@@ -54,7 +72,7 @@
 
             const loadTherapies = async () => {
                 try {
-                    const response = await fetch('/api/therapies', { headers });
+                    const response = await fetch(`${apiBase}/api/therapies`, { headers });
                     if (response.ok) {
                         const therapies = await response.json();
                         const medicationsList = document.getElementById('medications');
@@ -86,7 +104,7 @@
                 };
 
                 try {
-                    const response = await fetch('/api/therapies', {
+                    const response = await fetch(`${apiBase}/api/therapies`, {
                         method: 'POST',
                         headers: { ...headers, 'Content-Type': 'application/json' },
                         body: JSON.stringify(data),
@@ -105,7 +123,7 @@
 
             const deleteTherapy = async (therapyId) => {
                 try {
-                    const response = await fetch(`/api/therapies/${therapyId}`, {
+                    const response = await fetch(`${apiBase}/api/therapies/${therapyId}`, {
                         method: 'DELETE',
                         headers,
                     });
@@ -122,8 +140,9 @@
 
             document.getElementById('add-medication-form').addEventListener('submit', addTherapy);
             document.getElementById('logout-btn').addEventListener('click', () => {
+                localStorage.removeItem('authToken');
                 localStorage.removeItem('accessToken');
-                window.location.href = '/login';
+                window.location.href = appPath('/login');
             });
 
             loadTherapies();

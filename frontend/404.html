@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reindirizzamento - Epilessia Platform</title>
+  <script>
+    (function () {
+      var path = window.location.pathname;
+      var parts = path.split('/').filter(Boolean);
+      var repo = parts.length ? parts[0] : '';
+      var target = repo ? '/' + repo + '/index.html' : '/index.html';
+      var query = window.location.search || '';
+      window.location.replace(target + query);
+    })();
+  </script>
+</head>
+<body>
+  <p>Reindirizzamento in corso...</p>
+</body>
+</html>

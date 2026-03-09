@@ -52,9 +52,27 @@
 
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-        const token = localStorage.getItem('accessToken');
+        const token = localStorage.getItem('authToken') || localStorage.getItem('accessToken');
+        const params = new URLSearchParams(window.location.search);
+        const queryApi = params.get('api_base');
+        if (queryApi && /^https?:\/\//i.test(queryApi)) {
+            localStorage.setItem('epiguard_api_base', queryApi.replace(/\/$/, ''));
+        }
+        const apiBase = (localStorage.getItem('epiguard_api_base') || window.location.origin).replace(/\/$/, '');
+        const isPages = window.location.hostname.endsWith('github.io');
+        const basePath = isPages ? `/${window.location.pathname.split('/').filter(Boolean)[0] || ''}`.replace(/\/$/, '') : '';
+        const appPath = (route) => {
+            if (!isPages) return route;
+            const map = {
+                '/login': 'login.html',
+                '/dashboard': 'dashboard.html',
+                '/therapy': 'therapy.html',
+                '/settings': 'settings.html'
+            };
+            return `${basePath}/${map[route] || 'index.html'}`;
+        };
         if (!token) {
-            window.location.href = '/login';
+            window.location.href = appPath('/login');
             return;
         }
 
@@ -64,7 +82,7 @@
 
         const loadRiskHistory = async () => {
             try {
-                const response = await fetch('/api/risk-history', { headers });
+                const response = await fetch(`${apiBase}/api/risk-history`, { headers });
                 if (!response.ok) throw new Error('Errore caricamento cronologia rischio');
                 const data = await response.json();
                 
@@ -96,7 +114,7 @@
 
         const loadPhysiologicalSummary = async () => {
             try {
-                const response = await fetch('/api/physiological-summary', { headers });
+                const response = await fetch(`${apiBase}/api/physiological-summary`, { headers });
                 if (!response.ok) throw new Error('Errore caricamento dati fisiologici');
                 const data = await response.json();
 
@@ -149,7 +167,7 @@
 
         const loadMedicationImpact = async () => {
             try {
-                const response = await fetch('/api/medication-impact', { headers });
+                const response = await fetch(`${apiBase}/api/medication-impact`, { headers });
                 if (!response.ok) throw new Error('Errore caricamento impatto farmaci');
                 const data = await response.json();
 
@@ -191,8 +209,9 @@
         // --- Inizializzazione ---
 
         document.getElementById('logout-btn').addEventListener('click', () => {
+            localStorage.removeItem('authToken');
             localStorage.removeItem('accessToken');
-            window.location.href = '/login';
+            window.location.href = appPath('/login');
         });
         
         loadRiskHistory();
