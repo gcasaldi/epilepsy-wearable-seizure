@@ -1970,20 +1970,30 @@ async function boot() {
         const apkStatusMessage = document.getElementById('apkStatusMessage');
         const directApkUrl = `${API_BASE}${LOCAL_APK_PATH}`;
         const staticPagesMode = isStaticPagesApiBase();
+        const pagesBasePath = appBasePath();
+        const pagesRepoBase = pagesBasePath.endsWith('/frontend')
+            ? pagesBasePath.slice(0, -'/frontend'.length)
+            : pagesBasePath;
+        const staticApkUrl = `${window.location.origin}${pagesRepoBase}/wear-app/app/build/outputs/apk/debug/app-debug.apk`;
         let apkReady = false;
         let apkTargetUrl = '';
         let apkBuildHint = '';
 
-        try {
-            const apkStatus = await api('/app/apk/status');
-            apkReady = Boolean(apkStatus && apkStatus.available);
-            if (apkReady) {
-                apkTargetUrl = apkStatus.apk_url || directApkUrl;
-            } else {
-                apkBuildHint = apkStatus?.build_hint || '';
+        if (staticPagesMode) {
+            apkReady = true;
+            apkTargetUrl = staticApkUrl;
+        } else {
+            try {
+                const apkStatus = await api('/app/apk/status');
+                apkReady = Boolean(apkStatus && apkStatus.available);
+                if (apkReady) {
+                    apkTargetUrl = apkStatus.apk_url || directApkUrl;
+                } else {
+                    apkBuildHint = apkStatus?.build_hint || '';
+                }
+            } catch {
+                apkReady = false;
             }
-        } catch {
-            apkReady = false;
         }
 
         const useDirectApk = apkReady;
@@ -2022,7 +2032,7 @@ async function boot() {
             if (useDirectApk && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
                 apkQrHint.textContent = 'Per scansione da telefono usa l\'IP LAN del PC (es. http://192.168.x.x:8000/app).';
             } else if (staticPagesMode) {
-                apkQrHint.textContent = 'Se sei su pagina statica, imposta qui sopra l\'URL backend reale (non github.io) per scaricare davvero l\'APK.';
+                apkQrHint.textContent = 'Su GitHub Pages il QR scarica direttamente l\'APK statico pubblicato nel repository.';
             } else if (!useDirectApk) {
                 apkQrHint.textContent = 'APK locale non confermato dal backend: il QR prova comunque il download diretto.';
             } else {
@@ -2034,7 +2044,7 @@ async function boot() {
             if (useDirectApk) {
                 apkStatusMessage.textContent = 'APK disponibile: usa il pulsante o il QR per installazione immediata.';
             } else if (staticPagesMode) {
-                apkStatusMessage.textContent = 'Backend non configurato: il QR punta a /app/apk del dominio API attuale. Imposta un backend reale per il download.';
+                apkStatusMessage.textContent = 'GitHub Pages attivo: download diretto APK statico abilitato.';
             } else if (apkBuildHint) {
                 apkStatusMessage.textContent = `APK non trovato sul backend. Comando consigliato: ${apkBuildHint}`;
             } else {
