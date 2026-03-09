@@ -685,6 +685,24 @@ function getToken() {
     return localStorage.getItem(TOKEN_KEY);
 }
 
+function readUsernameFromToken(token) {
+    if (!token) return '';
+    if (token.startsWith('local.')) {
+        const profile = getLocalProfileFromToken();
+        return profile?.email || '';
+    }
+    const parts = token.split('.');
+    if (parts.length < 2) return '';
+    try {
+        const padded = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const normalized = padded + '='.repeat((4 - (padded.length % 4)) % 4);
+        const payload = JSON.parse(atob(normalized));
+        return payload?.sub || '';
+    } catch {
+        return '';
+    }
+}
+
 function setToken(token) {
     localStorage.setItem(TOKEN_KEY, token);
 }
@@ -2662,8 +2680,13 @@ async function boot() {
     }
 
     if (page === 'dashboard-v2') {
-        const user = await requireAuth(['personal']);
-        if (!user) return;
+        const token = getToken();
+        if (!token) {
+            goTo('/login');
+            return;
+        }
+
+        const derivedUsername = readUsernameFromToken(token) || 'utente';
 
         const statusEl = document.getElementById('v2Status');
         const startInput = document.getElementById('v2RangeStart');
@@ -2840,7 +2863,7 @@ async function boot() {
                 const startIso = readDateTimeLocalAsIso(startInput?.value || '');
                 const endIso = readDateTimeLocalAsIso(endInput?.value || '');
                 openPrintableReport({
-                    username: user.username,
+                    username: derivedUsername,
                     riskScore: lastRiskScore,
                     riskMessage: lastRiskMessage,
                     therapies: [],
