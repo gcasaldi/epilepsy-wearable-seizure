@@ -2000,11 +2000,61 @@ function renderAiTips(tips) {
     aiTips.innerHTML = tips.map((tip) => `<li class="muted">${tip}</li>`).join('');
 }
 
+function buildVitalsExplainAndAdvice({ hrCurrent, hrvCurrent, spo2Current, bpSystolicCurrent, bpDiastolicCurrent }) {
+    const lines = [];
+
+    if (Number.isFinite(Number(hrCurrent))) {
+        const hr = Number(hrCurrent);
+        let advice = 'Valore in fascia abituale di riposo/attivita leggera.';
+        if (hr > 110) advice = 'Battito elevato: fermati, idratati e ricontrolla dopo 5-10 minuti.';
+        else if (hr < 45) advice = 'Battito molto basso: se hai sintomi (capogiro/debolezza), contatta un medico.';
+        lines.push(`Heart Rate (HR): ${Math.round(hr)} bpm = quanti battiti al minuto. ${advice}`);
+    } else {
+        lines.push('Heart Rate (HR): non disponibile ora. Non e obbligatorio, la AI continua con i dati presenti.');
+    }
+
+    if (Number.isFinite(Number(hrvCurrent))) {
+        const hrv = Number(hrvCurrent);
+        let advice = 'Variabilita buona/stabile per monitoraggio quotidiano.';
+        if (hrv < 25) advice = 'HRV basso: riduci stress nelle prossime ore e privilegia recupero/sonno.';
+        else if (hrv < 40) advice = 'HRV medio-basso: giornata potenzialmente piu faticosa, tieni ritmo regolare.';
+        lines.push(`HRV: ${Math.round(hrv)} ms = variabilita del battito (resilienza allo stress). ${advice}`);
+    } else {
+        lines.push('HRV: non disponibile ora. Non e obbligatorio (molti smartwatch non lo espongono via web BLE).');
+    }
+
+    if (Number.isFinite(Number(spo2Current))) {
+        const spo2 = Number(spo2Current);
+        let advice = 'Ossigenazione nella norma in questo campione.';
+        if (spo2 < 92) advice = 'SpO2 bassa: ripeti misura a riposo; se persiste o hai sintomi, valuta supporto medico.';
+        else if (spo2 < 95) advice = 'SpO2 lievemente ridotta: ripeti misura con sensore ben aderente e mano ferma.';
+        lines.push(`SpO2: ${spo2.toFixed(1)}% = saturazione ossigeno nel sangue. ${advice}`);
+    } else {
+        lines.push('SpO2: non disponibile ora. Non e obbligatorio; dipende dal supporto reale del tuo smartwatch.');
+    }
+
+    if (Number.isFinite(Number(bpSystolicCurrent)) && Number.isFinite(Number(bpDiastolicCurrent))) {
+        const sys = Number(bpSystolicCurrent);
+        const dia = Number(bpDiastolicCurrent);
+        let advice = 'Valore pressorio utile da monitorare nel tempo.';
+        if (sys >= 140 || dia >= 90) advice = 'Pressione alta nel campione: ripeti a riposo e confronta col tuo medico se ricorrente.';
+        else if (sys < 90 || dia < 60) advice = 'Pressione bassa nel campione: se hai sintomi, siediti e valuta contatto medico.';
+        lines.push(`Pressione arteriosa: ${Math.round(sys)}/${Math.round(dia)} mmHg. Significa sistolica/diastolica (esempio 121/72). ${advice}`);
+    } else {
+        lines.push('Pressione arteriosa: non disponibile ora. Non e obbligatoria; molti device non la pubblicano via BLE web standard.');
+    }
+
+    return lines;
+}
+
 function renderDeepAiAnalysis({
     riskScore,
     riskMessage,
     hrCurrent,
     hrvCurrent,
+    spo2Current,
+    bpSystolicCurrent,
+    bpDiastolicCurrent,
     medWith,
     medWithout,
 }) {
@@ -2024,9 +2074,10 @@ function renderDeepAiAnalysis({
 
     const lines = [
         `Stato attuale: rischio ${riskText} (${(riskScore * 100).toFixed(1)}%), trend ${trendText}.`,
-        `Segnali fisiologici: HR ${hrCurrent ?? 'N/D'} bpm, HRV ${hrvCurrent ?? 'N/D'} ms.`,
+        `Segnali fisiologici: HR ${hrCurrent ?? 'N/D'} bpm, HRV ${hrvCurrent ?? 'N/D'} ms, SpO2 ${Number.isFinite(Number(spo2Current)) ? `${Number(spo2Current).toFixed(1)}%` : 'N/D'}, BP ${Number.isFinite(Number(bpSystolicCurrent)) && Number.isFinite(Number(bpDiastolicCurrent)) ? `${Math.round(Number(bpSystolicCurrent))}/${Math.round(Number(bpDiastolicCurrent))}` : 'N/D'}.`,
         `Impatto terapia: ${medImpactText}.`,
         `Sintesi AI: ${riskMessage || 'monitoraggio continuo consigliato.'}`,
+        ...buildVitalsExplainAndAdvice({ hrCurrent, hrvCurrent, spo2Current, bpSystolicCurrent, bpDiastolicCurrent }),
     ];
 
     box.innerHTML = `
@@ -2314,7 +2365,7 @@ async function smartConnectNow({ username, report, bridgeBtn, bridgeStatus }) {
     renderTelemetryHealthPanel(username);
 }
 
-function renderAlwaysOnAiPanel({ username, riskScore, hrCurrent, hrvCurrent, riskMessage }) {
+function renderAlwaysOnAiPanel({ username, riskScore, hrCurrent, hrvCurrent, spo2Current, bpSystolicCurrent, bpDiastolicCurrent, riskMessage }) {
     const statusEl = document.getElementById('aiPresenceStatus');
     const adviceEl = document.getElementById('aiPresenceAdvice');
     if (!statusEl || !adviceEl) return;
@@ -2327,14 +2378,23 @@ function renderAlwaysOnAiPanel({ username, riskScore, hrCurrent, hrvCurrent, ris
         sim_demo: 'simulazione',
     }[source.mode] || 'sconosciuta';
 
-    const hasVitals = Number.isFinite(hrCurrent) && Number.isFinite(hrvCurrent);
+    const hasVitals = Number.isFinite(hrCurrent) || Number.isFinite(hrvCurrent) || Number.isFinite(spo2Current)
+        || (Number.isFinite(bpSystolicCurrent) && Number.isFinite(bpDiastolicCurrent));
     const tips = [];
 
     if (!hasVitals) {
         tips.push('Dati vitali incompleti: non posso fare inferenze puntuali, usa sync o inserimento manuale.');
     } else {
-        tips.push(`Segnali correnti disponibili: HR ${hrCurrent} bpm, HRV ${hrvCurrent} ms.`);
+        const hrText = Number.isFinite(Number(hrCurrent)) ? `${Math.round(Number(hrCurrent))} bpm` : 'N/D';
+        const hrvText = Number.isFinite(Number(hrvCurrent)) ? `${Math.round(Number(hrvCurrent))} ms` : 'N/D';
+        const spo2Text = Number.isFinite(Number(spo2Current)) ? `${Number(spo2Current).toFixed(1)}%` : 'N/D';
+        const bpText = Number.isFinite(Number(bpSystolicCurrent)) && Number.isFinite(Number(bpDiastolicCurrent))
+            ? `${Math.round(Number(bpSystolicCurrent))}/${Math.round(Number(bpDiastolicCurrent))}`
+            : 'N/D';
+        tips.push(`Segnali correnti: HR ${hrText}, HRV ${hrvText}, SpO2 ${spo2Text}, BP ${bpText}.`);
     }
+
+    tips.push(...buildVitalsExplainAndAdvice({ hrCurrent, hrvCurrent, spo2Current, bpSystolicCurrent, bpDiastolicCurrent }).slice(0, 2));
 
     if (Number.isFinite(riskScore)) {
         if (riskScore >= 0.67) tips.push('Rischio alto: resta in ambiente sicuro e riduci stimoli intensi.');
@@ -3723,6 +3783,9 @@ async function boot() {
         let lastRiskMessage = '';
         let hrCurrent = null;
         let hrvCurrent = null;
+        let spo2Current = null;
+        let bpSystolicCurrent = null;
+        let bpDiastolicCurrent = null;
         let medWith = null;
         let medWithout = null;
         const dashboardUser = user.username || 'user';
@@ -3922,6 +3985,17 @@ async function boot() {
         const compatibility = bleCompatibilityReport();
         renderBleCompatibility(compatibility);
         const dashboardBleMeta = readJsonStorage(userScopedKey(dashboardUser, 'bridge_ble_meta'), null);
+        if (dashboardBleMeta) {
+            if (Number.isFinite(Number(dashboardBleMeta.spo2))) {
+                spo2Current = Number(dashboardBleMeta.spo2);
+            }
+            if (Number.isFinite(Number(dashboardBleMeta.blood_pressure_systolic))) {
+                bpSystolicCurrent = Number(dashboardBleMeta.blood_pressure_systolic);
+            }
+            if (Number.isFinite(Number(dashboardBleMeta.blood_pressure_diastolic))) {
+                bpDiastolicCurrent = Number(dashboardBleMeta.blood_pressure_diastolic);
+            }
+        }
         updateBleIndicator(dashboardBleMeta?.last_bridge_at ? 'warn' : 'off');
         runDashboardOnboarding({ username: dashboardUser, report: compatibility, bridgeStatus });
 
@@ -3994,6 +4068,15 @@ async function boot() {
                         },
                         onTelemetry: (sample) => {
                             hrCurrent = Number(sample.heart_rate || hrCurrent);
+                            if (Number.isFinite(Number(sample.spo2))) {
+                                spo2Current = Number(sample.spo2);
+                            }
+                            if (Number.isFinite(Number(sample.blood_pressure_systolic))) {
+                                bpSystolicCurrent = Number(sample.blood_pressure_systolic);
+                            }
+                            if (Number.isFinite(Number(sample.blood_pressure_diastolic))) {
+                                bpDiastolicCurrent = Number(sample.blood_pressure_diastolic);
+                            }
                             if (bleLiveStats) {
                                 const rrText = Number.isFinite(Number(sample.rr_interval_ms))
                                     ? ` · RR ${Math.round(Number(sample.rr_interval_ms))} ms`
@@ -4016,7 +4099,18 @@ async function boot() {
                         onAnalysis: async ({ prediction, payload, sampleCount, rrIntervalMs, spo2, bloodPressureSystolic, bloodPressureDiastolic, alertSentToWearable, deviceName }) => {
                             lastRiskScore = Number(prediction.risk_score || lastRiskScore || 0);
                             lastRiskMessage = prediction.message || lastRiskMessage || 'Analisi aggiornata da BLE';
-                            hrvCurrent = Number(payload.hrv || hrvCurrent || 0);
+                            if (Number.isFinite(Number(payload.hrv))) {
+                                hrvCurrent = Number(payload.hrv);
+                            }
+                            if (Number.isFinite(Number(spo2))) {
+                                spo2Current = Number(spo2);
+                            }
+                            if (Number.isFinite(Number(bloodPressureSystolic))) {
+                                bpSystolicCurrent = Number(bloodPressureSystolic);
+                            }
+                            if (Number.isFinite(Number(bloodPressureDiastolic))) {
+                                bpDiastolicCurrent = Number(bloodPressureDiastolic);
+                            }
 
                             const riskEl = document.getElementById('lastRisk');
                             const msgEl = document.getElementById('lastMessage');
@@ -4032,6 +4126,9 @@ async function boot() {
                                 riskMessage: lastRiskMessage,
                                 hrCurrent,
                                 hrvCurrent,
+                                spo2Current,
+                                bpSystolicCurrent,
+                                bpDiastolicCurrent,
                                 medWith,
                                 medWithout,
                             });
@@ -4040,6 +4137,9 @@ async function boot() {
                                 riskScore: lastRiskScore,
                                 hrCurrent,
                                 hrvCurrent,
+                                spo2Current,
+                                bpSystolicCurrent,
+                                bpDiastolicCurrent,
                                 riskMessage: lastRiskMessage,
                             });
                             renderAiTips(buildAiTips({
@@ -4255,6 +4355,9 @@ async function boot() {
             riskMessage: lastRiskMessage,
             hrCurrent,
             hrvCurrent,
+            spo2Current,
+            bpSystolicCurrent,
+            bpDiastolicCurrent,
             medWith,
             medWithout,
         });
@@ -4263,6 +4366,9 @@ async function boot() {
             riskScore: lastRiskScore,
             hrCurrent,
             hrvCurrent,
+            spo2Current,
+            bpSystolicCurrent,
+            bpDiastolicCurrent,
             riskMessage: lastRiskMessage,
         });
         renderDiaryEntries(dashboardUser, lastRiskScore);
