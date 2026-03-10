@@ -1530,11 +1530,14 @@ async def predict_watch_risk(
     """Predizione rischio usando solo metriche realmente inviate dal device."""
     try:
         logger.info(
-            "[%s] Predict watch-only - HR=%s RR=%s HRV=%s",
+            "[%s] Predict watch-only - HR=%s RR=%s HRV=%s SpO2=%s BP=%s/%s",
             current_user,
             data.heart_rate,
             data.rr_interval_ms,
             data.hrv,
+            data.spo2,
+            data.blood_pressure_systolic,
+            data.blood_pressure_diastolic,
         )
 
         effective_hrv = data.hrv

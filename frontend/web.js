@@ -2427,6 +2427,42 @@ function parseHeartRateMeasurementDetails(dataView) {
     };
 }
 
+function parseBleSFloat(value16) {
+    let mantissa = value16 & 0x0fff;
+    let exponent = (value16 >> 12) & 0x0f;
+    if (mantissa >= 0x0800) mantissa -= 0x1000;
+    if (exponent >= 0x0008) exponent -= 0x0010;
+    return mantissa * (10 ** exponent);
+}
+
+function parsePulseOximeterMeasurement(dataView) {
+    if (!dataView || dataView.byteLength < 5) {
+        return { spo2: null, pulseRate: null };
+    }
+    const spo2Raw = dataView.getUint16(1, true);
+    const pulseRaw = dataView.getUint16(3, true);
+    const spo2 = parseBleSFloat(spo2Raw);
+    const pulseRate = parseBleSFloat(pulseRaw);
+    return {
+        spo2: Number.isFinite(spo2) ? Number(spo2) : null,
+        pulseRate: Number.isFinite(pulseRate) ? Number(pulseRate) : null,
+    };
+}
+
+function parseBloodPressureMeasurement(dataView) {
+    if (!dataView || dataView.byteLength < 7) {
+        return { systolic: null, diastolic: null };
+    }
+    const systolicRaw = dataView.getUint16(1, true);
+    const diastolicRaw = dataView.getUint16(3, true);
+    const systolic = parseBleSFloat(systolicRaw);
+    const diastolic = parseBleSFloat(diastolicRaw);
+    return {
+        systolic: Number.isFinite(systolic) ? Number(systolic) : null,
+        diastolic: Number.isFinite(diastolic) ? Number(diastolic) : null,
+    };
+}
+
 const bleLiveImportState = {
     running: false,
     timerId: null,
@@ -2440,6 +2476,12 @@ const bleLiveImportState = {
     server: null,
     characteristic: null,
     listener: null,
+    additionalCharacteristics: [],
+    additionalListeners: [],
+    latestPulseRate: null,
+    latestSpo2: null,
+    latestSystolic: null,
+    latestDiastolic: null,
 };
 
 const BLE_CAPTURE_INTERVAL_MS = 15 * 60 * 1000;
@@ -2495,6 +2537,14 @@ async function trySendBleAlertToWearable(server, message, onStep) {
 }
 
 async function readOneBleSample(characteristic, liveState, onStep) {
+    if (!characteristic) {
+        const pulseRate = Number(liveState.latestPulseRate);
+        return {
+            heartRate: Number.isFinite(pulseRate) ? pulseRate : null,
+            rrIntervalsMs: [],
+        };
+    }
+
     const captureStartedAt = Date.now();
 
     // Attendi qualche secondo per raccogliere notifiche fresche dal wearable.
@@ -2545,7 +2595,16 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
 
     const device = await navigator.bluetooth.requestDevice({
         acceptAllDevices: true,
-        optionalServices: ['heart_rate', 'device_information', 'immediate_alert'],
+        optionalServices: [
+            'heart_rate',
+            'pulse_oximeter',
+            'blood_pressure',
+            'device_information',
+            'immediate_alert',
+            '0000180d-0000-1000-8000-00805f9b34fb',
+            '00001822-0000-1000-8000-00805f9b34fb',
+            '00001810-0000-1000-8000-00805f9b34fb',
+        ],
     });
 
     const server = await device.gatt?.connect();
@@ -2553,8 +2612,85 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
         throw new Error('Connessione GATT non disponibile');
     }
 
-    let service = await server.getPrimaryService('heart_rate');
-    let characteristic = await service.getCharacteristic('heart_rate_measurement');
+    const tryGetService = async (activeServer, serviceIds) => {
+        for (const id of serviceIds) {
+            try {
+                const svc = await activeServer.getPrimaryService(id);
+                if (svc) return svc;
+            } catch {}
+        }
+        return null;
+    };
+
+    const tryGetCharacteristic = async (serviceRef, characteristicIds) => {
+        if (!serviceRef) return null;
+        for (const id of characteristicIds) {
+            try {
+                const chr = await serviceRef.getCharacteristic(id);
+                if (chr) return chr;
+            } catch {}
+        }
+        return null;
+    };
+
+    const heartServiceIds = ['heart_rate', '0000180d-0000-1000-8000-00805f9b34fb'];
+    const heartCharIds = ['heart_rate_measurement', '00002a37-0000-1000-8000-00805f9b34fb'];
+    const pulseOxServiceIds = ['pulse_oximeter', '00001822-0000-1000-8000-00805f9b34fb'];
+    const pulseOxCharIds = [
+        'plx_continuous_measurement',
+        'plx_spot_check_measurement',
+        '00002a5f-0000-1000-8000-00805f9b34fb',
+        '00002a5e-0000-1000-8000-00805f9b34fb',
+    ];
+    const bloodPressureServiceIds = ['blood_pressure', '00001810-0000-1000-8000-00805f9b34fb'];
+    const bloodPressureCharIds = ['blood_pressure_measurement', '00002a35-0000-1000-8000-00805f9b34fb'];
+
+    let heartCharacteristic = null;
+    let pulseOxCharacteristic = null;
+    let bloodPressureCharacteristic = null;
+
+    const bindCharacteristicListener = async (ch, listener) => {
+        if (!ch || !listener) return;
+        try {
+            ch.removeEventListener('characteristicvaluechanged', listener);
+        } catch {}
+        ch.addEventListener('characteristicvaluechanged', listener);
+        try {
+            await ch.startNotifications();
+        } catch {}
+        bleLiveImportState.additionalCharacteristics.push(ch);
+        bleLiveImportState.additionalListeners.push(listener);
+    };
+
+    const bindChannels = async (activeServer) => {
+        bleLiveImportState.additionalCharacteristics = [];
+        bleLiveImportState.additionalListeners = [];
+
+        const heartSvc = await tryGetService(activeServer, heartServiceIds);
+        heartCharacteristic = await tryGetCharacteristic(heartSvc, heartCharIds);
+
+        const pulseSvc = await tryGetService(activeServer, pulseOxServiceIds);
+        pulseOxCharacteristic = await tryGetCharacteristic(pulseSvc, pulseOxCharIds);
+
+        const bpSvc = await tryGetService(activeServer, bloodPressureServiceIds);
+        bloodPressureCharacteristic = await tryGetCharacteristic(bpSvc, bloodPressureCharIds);
+
+        if (!heartCharacteristic && !pulseOxCharacteristic) {
+            throw new Error('Il dispositivo non espone HR/PulseRate via BLE standard');
+        }
+
+        if (heartCharacteristic) {
+            await bindCharacteristicListener(heartCharacteristic, liveListener);
+            bleLiveImportState.characteristic = heartCharacteristic;
+            bleLiveImportState.listener = liveListener;
+        }
+        if (pulseOxCharacteristic) {
+            await bindCharacteristicListener(pulseOxCharacteristic, pulseOxListener);
+        }
+        if (bloodPressureCharacteristic) {
+            await bindCharacteristicListener(bloodPressureCharacteristic, bloodPressureListener);
+        }
+    };
 
     bleLiveImportState.running = true;
     bleLiveImportState.sampleCount = 0;
@@ -2564,7 +2700,13 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
     bleLiveImportState.lastAcceptedTsMs = null;
     bleLiveImportState.device = device;
     bleLiveImportState.server = server;
-    bleLiveImportState.characteristic = characteristic;
+    bleLiveImportState.characteristic = heartCharacteristic;
+    bleLiveImportState.additionalCharacteristics = [];
+    bleLiveImportState.additionalListeners = [];
+    bleLiveImportState.latestPulseRate = null;
+    bleLiveImportState.latestSpo2 = null;
+    bleLiveImportState.latestSystolic = null;
+    bleLiveImportState.latestDiastolic = null;
     onStep?.(`Dispositivo connesso: ${device.name || 'BLE device'}. Avvio monitoraggio automatico ogni 15 minuti...`);
 
     const liveListener = (event) => {
@@ -2589,14 +2731,31 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
 
     bleLiveImportState.listener = liveListener;
 
-    const bindListener = async () => {
-        characteristic.removeEventListener('characteristicvaluechanged', liveListener);
-        characteristic.addEventListener('characteristicvaluechanged', liveListener);
-        await characteristic.startNotifications();
-        bleLiveImportState.characteristic = characteristic;
+    const pulseOxListener = (event) => {
+        const value = event?.target?.value;
+        if (!value) return;
+        const parsed = parsePulseOximeterMeasurement(value);
+        if (Number.isFinite(Number(parsed.spo2))) {
+            bleLiveImportState.latestSpo2 = Number(parsed.spo2);
+        }
+        if (Number.isFinite(Number(parsed.pulseRate))) {
+            bleLiveImportState.latestPulseRate = Number(parsed.pulseRate);
+        }
     };
 
-    await bindListener();
+    const bloodPressureListener = (event) => {
+        const value = event?.target?.value;
+        if (!value) return;
+        const parsed = parseBloodPressureMeasurement(value);
+        if (Number.isFinite(Number(parsed.systolic))) {
+            bleLiveImportState.latestSystolic = Number(parsed.systolic);
+        }
+        if (Number.isFinite(Number(parsed.diastolic))) {
+            bleLiveImportState.latestDiastolic = Number(parsed.diastolic);
+        }
+    };
+
+    await bindChannels(server);
 
     const ensureBleConnection = async () => {
         if (!bleLiveImportState.running) return;
@@ -2607,9 +2766,7 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
             throw new Error('Riconnessione GATT non disponibile');
         }
         bleLiveImportState.server = newServer;
-        service = await newServer.getPrimaryService('heart_rate');
-        characteristic = await service.getCharacteristic('heart_rate_measurement');
-        await bindListener();
+        await bindChannels(newServer);
         onStep?.('Riconnessione BLE riuscita.');
     };
 
@@ -2618,10 +2775,13 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
         await ensureBleConnection();
         onStep?.('Rilevazione BLE in corso...');
 
-        const details = await readOneBleSample(characteristic, bleLiveImportState, onStep);
-        const hr = Number(details.heartRate);
+        const details = await readOneBleSample(heartCharacteristic, bleLiveImportState, onStep);
+        let hr = Number(details.heartRate);
         if (!Number.isFinite(hr)) {
-            onStep?.('Rilevazione non riuscita: nessun battito letto dal device.');
+            hr = Number(bleLiveImportState.latestPulseRate);
+        }
+        if (!Number.isFinite(hr)) {
+            onStep?.('Rilevazione non riuscita: nessun battito/pulse-rate letto dal device.');
             return;
         }
 
@@ -2644,6 +2804,39 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
         bleLiveImportState.lastAcceptedTsMs = Date.now();
         const hrvFromRr = Number.isFinite(rrAvg) ? rrAvg : null;
 
+        let spo2 = Number(bleLiveImportState.latestSpo2);
+        if (!Number.isFinite(spo2) && pulseOxCharacteristic) {
+            try {
+                const pulseValue = await pulseOxCharacteristic.readValue();
+                const pulseParsed = parsePulseOximeterMeasurement(pulseValue);
+                if (Number.isFinite(Number(pulseParsed.spo2))) {
+                    spo2 = Number(pulseParsed.spo2);
+                    bleLiveImportState.latestSpo2 = spo2;
+                }
+                if (Number.isFinite(Number(pulseParsed.pulseRate)) && !Number.isFinite(hr)) {
+                    hr = Number(pulseParsed.pulseRate);
+                    bleLiveImportState.latestPulseRate = hr;
+                }
+            } catch {}
+        }
+
+        let systolic = Number(bleLiveImportState.latestSystolic);
+        let diastolic = Number(bleLiveImportState.latestDiastolic);
+        if ((!Number.isFinite(systolic) || !Number.isFinite(diastolic)) && bloodPressureCharacteristic) {
+            try {
+                const bpValue = await bloodPressureCharacteristic.readValue();
+                const bpParsed = parseBloodPressureMeasurement(bpValue);
+                if (Number.isFinite(Number(bpParsed.systolic))) {
+                    systolic = Number(bpParsed.systolic);
+                    bleLiveImportState.latestSystolic = systolic;
+                }
+                if (Number.isFinite(Number(bpParsed.diastolic))) {
+                    diastolic = Number(bpParsed.diastolic);
+                    bleLiveImportState.latestDiastolic = diastolic;
+                }
+            } catch {}
+        }
+
         bleLiveImportState.sampleCount += 1;
         const sampleCount = bleLiveImportState.sampleCount;
 
@@ -2651,6 +2844,9 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
             heart_rate: hr,
             rr_interval_ms: rrAvg,
             hrv_real: Number.isFinite(hrvFromRr) ? hrvFromRr : null,
+            spo2: Number.isFinite(spo2) ? Number(spo2.toFixed(1)) : null,
+            blood_pressure_systolic: Number.isFinite(systolic) ? Number(systolic.toFixed(1)) : null,
+            blood_pressure_diastolic: Number.isFinite(diastolic) ? Number(diastolic.toFixed(1)) : null,
             sample_count: sampleCount,
             timestamp: new Date().toISOString(),
             device_name: device.name || 'BLE device',
@@ -2660,6 +2856,9 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
             heart_rate: hr,
             rr_interval_ms: Number.isFinite(rrAvg) ? rrAvg : null,
             hrv: Number.isFinite(hrvFromRr) ? hrvFromRr : null,
+            spo2: Number.isFinite(spo2) ? Number(spo2.toFixed(1)) : null,
+            blood_pressure_systolic: Number.isFinite(systolic) ? Number(systolic.toFixed(1)) : null,
+            blood_pressure_diastolic: Number.isFinite(diastolic) ? Number(diastolic.toFixed(1)) : null,
         };
 
         try {
@@ -2674,6 +2873,9 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
                 last_bridge_at: new Date().toISOString(),
                 sample_hr: hr,
                 rr_interval_ms: rrAvg,
+                spo2: payload.spo2,
+                blood_pressure_systolic: payload.blood_pressure_systolic,
+                blood_pressure_diastolic: payload.blood_pressure_diastolic,
                 mode: 'live-15m',
                 samples_total: sampleCount,
             });
@@ -2681,7 +2883,7 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
             const alertMessage = buildWearableAlertMessage({ hr, hrv: payload.hrv });
             let alertSentToWearable = false;
             if (alertMessage) {
-                alertSentToWearable = await trySendBleAlertToWearable(server, alertMessage, onStep);
+                alertSentToWearable = await trySendBleAlertToWearable(bleLiveImportState.server, alertMessage, onStep);
                 if ('Notification' in window && Notification.permission === 'granted') {
                     try {
                         new Notification('Epiguard alert wearable', { body: alertMessage });
@@ -2700,6 +2902,9 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
                 payload,
                 sampleCount,
                 rrIntervalMs: rrAvg,
+                spo2: payload.spo2,
+                bloodPressureSystolic: payload.blood_pressure_systolic,
+                bloodPressureDiastolic: payload.blood_pressure_diastolic,
                 alertSentToWearable,
                 deviceName: device.name || 'BLE device',
             });
@@ -2729,7 +2934,15 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
 async function stopBleLiveImportSession() {
     if (!bleLiveImportState.running) return;
 
-    const { timerId, keepAliveTimerId, characteristic, listener, server } = bleLiveImportState;
+    const {
+        timerId,
+        keepAliveTimerId,
+        characteristic,
+        listener,
+        additionalCharacteristics,
+        additionalListeners,
+        server,
+    } = bleLiveImportState;
 
     if (timerId) {
         clearInterval(timerId);
@@ -2751,6 +2964,19 @@ async function stopBleLiveImportSession() {
     } catch {}
 
     try {
+        for (let i = 0; i < additionalCharacteristics.length; i += 1) {
+            const ch = additionalCharacteristics[i];
+            const l = additionalListeners[i];
+            try {
+                if (ch && l) ch.removeEventListener('characteristicvaluechanged', l);
+            } catch {}
+            try {
+                if (ch) await ch.stopNotifications();
+            } catch {}
+        }
+    } catch {}
+
+    try {
         if (server) {
             server.disconnect();
         }
@@ -2768,6 +2994,12 @@ async function stopBleLiveImportSession() {
     bleLiveImportState.server = null;
     bleLiveImportState.characteristic = null;
     bleLiveImportState.listener = null;
+    bleLiveImportState.additionalCharacteristics = [];
+    bleLiveImportState.additionalListeners = [];
+    bleLiveImportState.latestPulseRate = null;
+    bleLiveImportState.latestSpo2 = null;
+    bleLiveImportState.latestSystolic = null;
+    bleLiveImportState.latestDiastolic = null;
 }
 
 async function readHeartRateFromGatt(device, onStep) {
@@ -3766,7 +3998,13 @@ async function boot() {
                                 const rrText = Number.isFinite(Number(sample.rr_interval_ms))
                                     ? ` · RR ${Math.round(Number(sample.rr_interval_ms))} ms`
                                     : '';
-                                bleLiveStats.textContent = `Campioni BLE importati: ${sample.sample_count} · HR ${sample.heart_rate} bpm${rrText}`;
+                                const spo2Text = Number.isFinite(Number(sample.spo2))
+                                    ? ` · SpO2 ${Number(sample.spo2).toFixed(1)}%`
+                                    : '';
+                                const bpText = Number.isFinite(Number(sample.blood_pressure_systolic)) && Number.isFinite(Number(sample.blood_pressure_diastolic))
+                                    ? ` · BP ${Math.round(Number(sample.blood_pressure_systolic))}/${Math.round(Number(sample.blood_pressure_diastolic))}`
+                                    : '';
+                                bleLiveStats.textContent = `Campioni BLE importati: ${sample.sample_count} · HR ${sample.heart_rate} bpm${rrText}${spo2Text}${bpText}`;
                             }
                             const manualHeartRate = document.getElementById('manualHeartRate');
                             if (manualHeartRate) {
@@ -3775,7 +4013,7 @@ async function boot() {
                             setDataQualityBadge(dashboardUser);
                             renderTelemetryHealthPanel(dashboardUser);
                         },
-                        onAnalysis: async ({ prediction, payload, sampleCount, rrIntervalMs, alertSentToWearable, deviceName }) => {
+                        onAnalysis: async ({ prediction, payload, sampleCount, rrIntervalMs, spo2, bloodPressureSystolic, bloodPressureDiastolic, alertSentToWearable, deviceName }) => {
                             lastRiskScore = Number(prediction.risk_score || lastRiskScore || 0);
                             lastRiskMessage = prediction.message || lastRiskMessage || 'Analisi aggiornata da BLE';
                             hrvCurrent = Number(payload.hrv || hrvCurrent || 0);
@@ -3819,13 +4057,17 @@ async function boot() {
 
                             if (bridgeStatus) {
                                 const rrText = Number.isFinite(Number(rrIntervalMs)) ? ` · RR ${Math.round(Number(rrIntervalMs))} ms` : '';
+                                const spo2Text = Number.isFinite(Number(spo2)) ? ` · SpO2 ${Number(spo2).toFixed(1)}%` : '';
+                                const bpText = Number.isFinite(Number(bloodPressureSystolic)) && Number.isFinite(Number(bloodPressureDiastolic))
+                                    ? ` · BP ${Math.round(Number(bloodPressureSystolic))}/${Math.round(Number(bloodPressureDiastolic))}`
+                                    : '';
                                 const alertText = buildWearableAlertMessage({
                                     hr: payload.heart_rate,
                                     hrv: payload.hrv,
                                 })
                                     ? (alertSentToWearable ? ' · alert inviato al wearable' : ' · alert anomalia inviato alla web app')
                                     : '';
-                                bridgeStatus.textContent = `Monitor BLE 15m: ${deviceName} · campione ${sampleCount} analizzato dalla AI${rrText}${alertText}.`;
+                                bridgeStatus.textContent = `Monitor BLE 15m: ${deviceName} · campione ${sampleCount} analizzato dalla AI${rrText}${spo2Text}${bpText}${alertText}.`;
                             }
 
                             // Ogni 3 analisi aggiorna anche lo storico dal backend.
