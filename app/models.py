@@ -123,6 +123,24 @@ class PhysiologicalData(BaseModel):
         }
 
 
+class WatchPhysiologicalData(BaseModel):
+    """Dati reali provenienti direttamente dallo smartwatch (senza campi stimati)."""
+
+    heart_rate: int = Field(..., ge=30, le=220, description="Battito cardiaco (bpm) letto dal device")
+    rr_interval_ms: Optional[float] = Field(default=None, ge=200, le=3000, description="Intervallo RR medio (ms) se disponibile")
+    hrv: Optional[float] = Field(default=None, ge=1, le=220, description="HRV reale se fornita dal device")
+    timestamp: Optional[datetime] = Field(default_factory=datetime.now, description="Timestamp rilevazione")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "heart_rate": 74,
+                "rr_interval_ms": 812,
+                "hrv": 812,
+            }
+        }
+
+
 class ManualBiometricRequest(BaseModel):
     """Inserimento manuale parametri quando la sync wearable non e` disponibile."""
     heart_rate: int = Field(..., ge=30, le=220)

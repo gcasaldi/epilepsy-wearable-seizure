@@ -49,6 +49,34 @@ class SeizurePredictor:
             message=message,
             timestamp=data.timestamp
         )
+
+    def predict_watch(self, heart_rate: int, hrv: float | None, timestamp) -> RiskPrediction:
+        """Predizione su dati reali smartwatch: usa solo metriche disponibili."""
+        weighted_sum = 0.0
+        weight_total = 0.0
+
+        hr_risk = self._heart_rate_risk(int(heart_rate))
+        weighted_sum += hr_risk * settings.weight_heart_rate
+        weight_total += settings.weight_heart_rate
+
+        if hrv is not None:
+            hrv_risk = self._hrv_risk(float(hrv))
+            weighted_sum += hrv_risk * settings.weight_hrv
+            weight_total += settings.weight_hrv
+
+        risk_score = weighted_sum / weight_total if weight_total > 0 else 0.0
+        risk_score = max(0.0, min(1.0, risk_score))
+        risk_level, message = self._categorize(risk_score)
+
+        if hrv is None:
+            message = f"{message} (analisi basata su battito reale; HRV non disponibile dal device)"
+
+        return RiskPrediction(
+            risk_score=round(risk_score, 3),
+            risk_level=risk_level,
+            message=message,
+            timestamp=timestamp,
+        )
     
     def _hrv_risk(self, hrv: float) -> float:
         """HRV basso = stress = rischio alto"""
