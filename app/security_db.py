@@ -1,7 +1,7 @@
 """
 Modelli persistence per sicurezza account, consenso e audit.
 """
-from datetime import datetime
+from datetime import datetime, time as dt_time
 from typing import Any, Optional
 import uuid
 
@@ -131,7 +131,7 @@ class Therapy(Base):
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
     medication_name: Mapped[str] = mapped_column(String(255), nullable=False)
     dosage: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    intake_time: Mapped[Optional[datetime.time]] = mapped_column(Time, nullable=True)
+    intake_time: Mapped[Optional[dt_time]] = mapped_column(Time, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 class BiometricRecord(Base):
@@ -192,6 +192,32 @@ class PasswordRecoveryToken(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     token_hash: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PasskeyCredential(Base):
+    __tablename__ = "passkey_credentials"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    credential_id: Mapped[str] = mapped_column(String(512), nullable=False, unique=True, index=True)
+    public_key: Mapped[str] = mapped_column(String(4096), nullable=False)
+    sign_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    transports: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    nickname: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class PasskeyChallenge(Base):
+    __tablename__ = "passkey_challenges"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    flow: Mapped[str] = mapped_column(String(20), nullable=False, index=True)  # register | login
+    challenge: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
     used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

@@ -8,6 +8,8 @@ import secrets
 import base64
 import json
 import hashlib
+import csv
+from io import StringIO
 import math
 import urllib.parse
 import urllib.request
@@ -16,7 +18,7 @@ import logging
 from collections import defaultdict, deque
 from pathlib import Path
 from typing import Deque, Dict, List, Optional
-from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi import FastAPI, HTTPException, Depends, Request, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse
@@ -30,6 +32,7 @@ from app.models import (
     WearableProvidersResponse, WearableProviderStatus,
     LoginRequest, RegisterRequest,
     PasswordRecoveryRequest, PasswordRecoveryConfirmRequest, PasswordRecoveryResponse,
+    PasskeyBeginRequest, PasskeyCompleteRequest, PasskeyOptionsResponse, PasskeyStatusResponse,
     ManualBiometricRequest,
 )
 from app.auth import (
@@ -41,7 +44,15 @@ from app.auth import (
 )
 from app.predictor import predictor
 from app.config import settings
-from app.security_db import SessionLocal, init_security_db, Therapy, PasswordRecoveryToken, BiometricRecord
+from app.security_db import (
+    SessionLocal,
+    init_security_db,
+    Therapy,
+    PasswordRecoveryToken,
+    BiometricRecord,
+    PasskeyCredential,
+    PasskeyChallenge,
+)
 from app.security_service import (
     ensure_provider_organization_context,
     ensure_user_exists,
@@ -59,6 +70,26 @@ from app.wearable_service import (
     upsert_connection,
     disconnect_connection,
 )
+from webauthn import (
+    generate_registration_options,
+    verify_registration_response,
+    generate_authentication_options,
+    verify_authentication_response,
+)
+from webauthn.helpers import options_to_json
+from webauthn.helpers.base64url_to_bytes import base64url_to_bytes
+from webauthn.helpers.bytes_to_base64url import bytes_to_base64url
+from webauthn.helpers.structs import (
+    PublicKeyCredentialDescriptor,
+    RegistrationCredential,
+    AuthenticationCredential,
+    UserVerificationRequirement,
+)
+from app.api.wearable import router as wearable_router
+from app.api.journal import router as journal_router
+from app.api.risk import router as risk_router
+from app.api.dashboard import router as dashboard_router
+from app.api.account import router as account_router
 
 # Logging
 logging.basicConfig(
@@ -75,6 +106,12 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc"
 )
+
+app.include_router(wearable_router)
+app.include_router(journal_router)
+app.include_router(risk_router)
+app.include_router(dashboard_router)
+app.include_router(account_router)
 
 
 class AuthRateLimiter:
@@ -181,6 +218,59 @@ def exchange_fitbit_oauth_code(code: str, redirect_uri: str) -> dict | None:
 
 def hash_recovery_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+def _normalize_email(email: str) -> str:
+    return email.strip().lower()
+
+
+def _validate_email(email: str) -> str:
+    normalized = _normalize_email(email)
+    if "@" not in normalized or "." not in normalized.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="Email non valida")
+    return normalized
+
+
+def _cleanup_expired_passkey_challenges(db):
+    db.query(PasskeyChallenge).filter(
+        PasskeyChallenge.expires_at <= datetime.utcnow()
+    ).delete()
+
+
+def _create_passkey_challenge(db, email: str, flow: str, challenge_b64url: str) -> int:
+    _cleanup_expired_passkey_challenges(db)
+    ttl = max(60, settings.passkey_challenge_ttl_seconds)
+    expires_at = datetime.utcnow() + timedelta(seconds=ttl)
+
+    db.add(
+        PasskeyChallenge(
+            email=email,
+            flow=flow,
+            challenge=challenge_b64url,
+            expires_at=expires_at,
+        )
+    )
+    db.commit()
+    return ttl
+
+
+def _consume_passkey_challenge(db, email: str, flow: str) -> PasskeyChallenge:
+    row = (
+        db.query(PasskeyChallenge)
+        .filter(
+            PasskeyChallenge.email == email,
+            PasskeyChallenge.flow == flow,
+            PasskeyChallenge.used_at.is_(None),
+            PasskeyChallenge.expires_at > datetime.utcnow(),
+        )
+        .order_by(PasskeyChallenge.created_at.desc())
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=400, detail="Challenge passkey scaduta o non valida")
+    row.used_at = datetime.utcnow()
+    db.commit()
+    return row
 
 # CORS
 app.add_middleware(
@@ -402,6 +492,256 @@ async def google_config():
         "google_client_id": settings.google_client_id,
         "enabled": bool(settings.google_client_id)
     }
+
+
+@app.post(
+    "/auth/passkey/register/options",
+    response_model=PasskeyOptionsResponse,
+    tags=["Authentication"],
+    summary="Avvia registrazione passkey biometrica"
+)
+async def begin_passkey_registration(payload: PasskeyBeginRequest, http_request: Request):
+    ip = http_request.client.host if http_request.client else "unknown"
+    limiter_key = f"passkey_register_begin:{ip}"
+    auth_rate_limiter.check(limiter_key)
+
+    email = _validate_email(payload.email)
+
+    db = SessionLocal()
+    try:
+        user = ensure_user_exists(
+            db,
+            email=email,
+            auth_provider="local",
+            account_type="personal",
+            provider_status=None,
+        )
+
+        existing = db.query(PasskeyCredential).filter(PasskeyCredential.user_id == user.id).all()
+        exclude_credentials = [
+            PublicKeyCredentialDescriptor(id=base64url_to_bytes(row.credential_id)) for row in existing
+        ]
+
+        options = generate_registration_options(
+            rp_id=settings.passkey_rp_id,
+            rp_name=settings.passkey_rp_name,
+            user_id=user.id.encode("utf-8"),
+            user_name=user.email,
+            user_display_name=user.email,
+            user_verification=UserVerificationRequirement.PREFERRED,
+            exclude_credentials=exclude_credentials,
+        )
+
+        options_dict = json.loads(options_to_json(options))
+        challenge = options_dict.get("challenge")
+        if not challenge:
+            raise HTTPException(status_code=500, detail="Challenge passkey non generata")
+
+        ttl = _create_passkey_challenge(db, email=email, flow="register", challenge_b64url=challenge)
+        return PasskeyOptionsResponse(options=options_dict, expires_in_seconds=ttl)
+    finally:
+        db.close()
+
+
+@app.post(
+    "/auth/passkey/register/complete",
+    tags=["Authentication"],
+    summary="Completa registrazione passkey biometrica"
+)
+async def complete_passkey_registration(payload: PasskeyCompleteRequest, http_request: Request):
+    ip = http_request.client.host if http_request.client else "unknown"
+    limiter_key = f"passkey_register_complete:{ip}"
+    auth_rate_limiter.check(limiter_key)
+
+    email = _validate_email(payload.email)
+
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, email)
+        if not user:
+            raise HTTPException(status_code=404, detail="Utente non trovato")
+
+        challenge_row = _consume_passkey_challenge(db, email=email, flow="register")
+        expected_challenge = challenge_row.challenge
+
+        verified = verify_registration_response(
+            credential=RegistrationCredential.parse_raw(json.dumps(payload.credential)),
+            expected_challenge=expected_challenge,
+            expected_rp_id=settings.passkey_rp_id,
+            expected_origin=settings.passkey_origins,
+            require_user_verification=True,
+        )
+
+        credential_id = bytes_to_base64url(verified.credential_id)
+        public_key = bytes_to_base64url(verified.credential_public_key)
+        transports = payload.credential.get("response", {}).get("transports")
+        transports_str = ",".join(transports) if isinstance(transports, list) else None
+
+        row = db.query(PasskeyCredential).filter(PasskeyCredential.credential_id == credential_id).first()
+        if row:
+            row.public_key = public_key
+            row.sign_count = int(verified.sign_count)
+            row.last_used_at = datetime.utcnow()
+            row.user_id = user.id
+            row.transports = transports_str
+        else:
+            db.add(
+                PasskeyCredential(
+                    user_id=user.id,
+                    credential_id=credential_id,
+                    public_key=public_key,
+                    sign_count=int(verified.sign_count),
+                    transports=transports_str,
+                    last_used_at=datetime.utcnow(),
+                )
+            )
+        db.commit()
+
+        return {
+            "status": "success",
+            "message": "Passkey biometrica registrata con successo.",
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        auth_rate_limiter.register(limiter_key)
+        raise HTTPException(status_code=400, detail="Registrazione passkey non valida")
+    finally:
+        db.close()
+
+
+@app.post(
+    "/auth/passkey/login/options",
+    response_model=PasskeyOptionsResponse,
+    tags=["Authentication"],
+    summary="Avvia login con passkey biometrica"
+)
+async def begin_passkey_login(payload: PasskeyBeginRequest, http_request: Request):
+    ip = http_request.client.host if http_request.client else "unknown"
+    limiter_key = f"passkey_login_begin:{ip}"
+    auth_rate_limiter.check(limiter_key)
+
+    email = _validate_email(payload.email)
+
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, email)
+        if not user:
+            raise HTTPException(status_code=404, detail="Utente non trovato")
+
+        credentials = db.query(PasskeyCredential).filter(PasskeyCredential.user_id == user.id).all()
+        if not credentials:
+            raise HTTPException(status_code=404, detail="Nessuna passkey registrata per questo account")
+
+        allow_credentials = [
+            PublicKeyCredentialDescriptor(id=base64url_to_bytes(row.credential_id)) for row in credentials
+        ]
+        options = generate_authentication_options(
+            rp_id=settings.passkey_rp_id,
+            allow_credentials=allow_credentials,
+            user_verification=UserVerificationRequirement.PREFERRED,
+        )
+        options_dict = json.loads(options_to_json(options))
+        challenge = options_dict.get("challenge")
+        if not challenge:
+            raise HTTPException(status_code=500, detail="Challenge passkey non generata")
+
+        ttl = _create_passkey_challenge(db, email=email, flow="login", challenge_b64url=challenge)
+        return PasskeyOptionsResponse(options=options_dict, expires_in_seconds=ttl)
+    finally:
+        db.close()
+
+
+@app.post(
+    "/auth/passkey/login/complete",
+    response_model=TokenResponse,
+    tags=["Authentication"],
+    summary="Completa login con passkey biometrica"
+)
+async def complete_passkey_login(payload: PasskeyCompleteRequest, http_request: Request):
+    ip = http_request.client.host if http_request.client else "unknown"
+    limiter_key = f"passkey_login_complete:{ip}"
+    auth_rate_limiter.check(limiter_key)
+
+    email = _validate_email(payload.email)
+
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, email)
+        if not user:
+            raise HTTPException(status_code=404, detail="Utente non trovato")
+
+        challenge_row = _consume_passkey_challenge(db, email=email, flow="login")
+        expected_challenge = challenge_row.challenge
+
+        credential_id = payload.credential.get("id")
+        if not credential_id:
+            raise HTTPException(status_code=400, detail="Credential ID passkey mancante")
+
+        credential_row = (
+            db.query(PasskeyCredential)
+            .filter(
+                PasskeyCredential.user_id == user.id,
+                PasskeyCredential.credential_id == credential_id,
+            )
+            .first()
+        )
+        if not credential_row:
+            raise HTTPException(status_code=401, detail="Passkey non riconosciuta")
+
+        verified = verify_authentication_response(
+            credential=AuthenticationCredential.parse_raw(json.dumps(payload.credential)),
+            expected_challenge=expected_challenge,
+            expected_rp_id=settings.passkey_rp_id,
+            expected_origin=settings.passkey_origins,
+            credential_public_key=base64url_to_bytes(credential_row.public_key),
+            credential_current_sign_count=int(credential_row.sign_count),
+            require_user_verification=True,
+        )
+
+        credential_row.sign_count = int(verified.new_sign_count)
+        credential_row.last_used_at = datetime.utcnow()
+        db.commit()
+
+        access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
+        access_token = create_access_token(
+            data={"sub": user.email, "ver": user.token_version},
+            expires_delta=access_token_expires,
+        )
+
+        return TokenResponse(
+            access_token=access_token,
+            token_type="bearer",
+            expires_in=settings.access_token_expire_minutes * 60,
+            username=user.email,
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        auth_rate_limiter.register(limiter_key)
+        raise HTTPException(status_code=401, detail="Login passkey non valido")
+    finally:
+        db.close()
+
+
+@app.get(
+    "/auth/passkey/status",
+    response_model=PasskeyStatusResponse,
+    tags=["Authentication"],
+    summary="Verifica se account ha passkey registrate"
+)
+async def passkey_status(email: str):
+    normalized_email = _validate_email(email)
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, normalized_email)
+        if not user:
+            return PasskeyStatusResponse(email=normalized_email, has_passkeys=False, count=0)
+
+        count = db.query(PasskeyCredential).filter(PasskeyCredential.user_id == user.id).count()
+        return PasskeyStatusResponse(email=normalized_email, has_passkeys=count > 0, count=count)
+    finally:
+        db.close()
 
 
 @app.post(
@@ -1191,20 +1531,25 @@ async def test_prediction(current_user: str = Depends(get_current_user)):
     }
 
 @app.get("/api/risk-history", response_model=List[RiskDataPoint], tags=["Dashboard"])
-async def get_risk_history(current_user: str = Depends(get_current_user)):
+async def get_risk_history(
+    start: Optional[datetime] = Query(default=None),
+    end: Optional[datetime] = Query(default=None),
+    limit: int = Query(default=24, ge=1, le=5000),
+    current_user: str = Depends(get_current_user),
+):
     db = SessionLocal()
     try:
         user = get_user_by_email(db, current_user)
         if not user:
             raise HTTPException(status_code=404, detail="Utente non trovato")
 
-        rows = (
-            db.query(BiometricRecord)
-            .filter(BiometricRecord.user_id == user.id)
-            .order_by(BiometricRecord.timestamp.desc())
-            .limit(24)
-            .all()
-        )
+        query = db.query(BiometricRecord).filter(BiometricRecord.user_id == user.id)
+        if start is not None:
+            query = query.filter(BiometricRecord.timestamp >= start)
+        if end is not None:
+            query = query.filter(BiometricRecord.timestamp <= end)
+
+        rows = query.order_by(BiometricRecord.timestamp.desc()).limit(limit).all()
         if rows:
             points = []
             for row in rows:
@@ -1214,12 +1559,66 @@ async def get_risk_history(current_user: str = Depends(get_current_user)):
     finally:
         db.close()
 
+    if start is not None or end is not None:
+        return []
+
     # Fallback demo se non ci sono ancora dati sync.
     now = datetime.now()
     return [
         RiskDataPoint(timestamp=now - timedelta(hours=i), risk_score=max(0, 0.5 + i * 0.1 - 0.2 * i * i + 0.01 * i * i * i))
         for i in range(24)
     ]
+
+
+@app.get("/api/export/risk-history.csv", tags=["Dashboard"])
+async def export_risk_history_csv(
+    start: Optional[datetime] = Query(default=None),
+    end: Optional[datetime] = Query(default=None),
+    current_user: str = Depends(get_current_user),
+):
+    db = SessionLocal()
+    try:
+        user = get_user_by_email(db, current_user)
+        if not user:
+            raise HTTPException(status_code=404, detail="Utente non trovato")
+
+        query = db.query(BiometricRecord).filter(BiometricRecord.user_id == user.id)
+        if start is not None:
+            query = query.filter(BiometricRecord.timestamp >= start)
+        if end is not None:
+            query = query.filter(BiometricRecord.timestamp <= end)
+
+        rows = query.order_by(BiometricRecord.timestamp.asc()).all()
+
+        out = StringIO()
+        writer = csv.writer(out)
+        writer.writerow(["timestamp", "risk_score", "heart_rate", "hrv", "movement", "sleep_hours", "stress_index"])
+
+        for row in rows:
+            risk_score = max(0.02, min(0.98, 0.62 - (row.hrv / 180) + (row.heart_rate - 70) / 180))
+            writer.writerow([
+                row.timestamp.isoformat(),
+                round(risk_score, 6),
+                row.heart_rate,
+                row.hrv,
+                row.movement,
+                row.sleep_hours,
+                row.stress_index if row.stress_index is not None else "",
+            ])
+
+        filename = "risk-history.csv"
+        if start or end:
+            start_tag = (start.isoformat() if start else "start")[:10]
+            end_tag = (end.isoformat() if end else "end")[:10]
+            filename = f"risk-history-{start_tag}-to-{end_tag}.csv"
+
+        return Response(
+            content=out.getvalue(),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    finally:
+        db.close()
 
 @app.get("/api/physiological-summary", tags=["Dashboard"])
 async def get_physiological_summary(current_user: str = Depends(get_current_user)):

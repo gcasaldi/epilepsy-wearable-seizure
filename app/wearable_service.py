@@ -5,6 +5,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.security_db import WearableConnection
+from app.config import settings
 
 
 PROVIDER_CATALOG = {
@@ -72,6 +73,10 @@ PROVIDER_CATALOG = {
 
 
 def list_supported_providers() -> list[dict]:
+    if settings.wearable_mvp_health_connect_only:
+        health_connect = PROVIDER_CATALOG["health_connect"]
+        return [{"provider_key": "health_connect", **health_connect}]
+
     return [
         {
             "provider_key": provider_key,
@@ -82,6 +87,8 @@ def list_supported_providers() -> list[dict]:
 
 
 def get_provider(provider_key: str) -> Optional[dict]:
+    if settings.wearable_mvp_health_connect_only and provider_key != "health_connect":
+        return None
     return PROVIDER_CATALOG.get(provider_key)
 
 

@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     """Configurazione con variabili d'ambiente"""
     
     # Application
-    app_name: str = "Epiguard AI Terminal"
+    app_name: str = "Epiguard"
     app_version: str = "1.0.0"
     debug: bool = True
     database_url: str = "sqlite:///./epilepsy_security.db"
@@ -21,13 +21,14 @@ class Settings(BaseSettings):
     # Admin credentials (hashed password)
     admin_username: str = "admin"
     admin_password_hash: str = "" 
+    enable_legacy_admin_login: bool = False
 
     # --- CREDENZIALI TEST REALE GIULIA (NON CANCELLARE) ---
     giulia_email: str = "giulia.casaldi@gmail.com"
     giulia_password: str = "GiuliaEpi2026!"
 
     # Demo accounts (solo sviluppo)
-    enable_demo_accounts: bool = True
+    enable_demo_accounts: bool = False
     demo_user_username: str = "demo.user@epilepsy.local"
     demo_user_password: str = "DemoUser2026!"
     demo_provider_username: str = "demo.ente@epilepsy.local"
@@ -41,6 +42,9 @@ class Settings(BaseSettings):
     fitbit_client_secret: str = ""
     fitbit_redirect_uri: str = ""
     fitbit_scopes: str = "activity heartrate sleep profile"
+
+    # Wearable strategy
+    wearable_mvp_health_connect_only: bool = True
     
     # Network Security
     cors_origins: list[str] = ["*"]
@@ -49,6 +53,15 @@ class Settings(BaseSettings):
     # Auth hardening
     auth_rate_limit_window_seconds: int = 300
     auth_rate_limit_max_attempts: int = 10
+
+    # Data retention (vincolo: almeno 3 anni)
+    data_retention_days: int = 365 * 3
+
+    # Passkey / WebAuthn
+    passkey_rp_name: str = "Epiguard"
+    passkey_rp_id: str = "localhost"
+    passkey_origins: list[str] = ["http://localhost:8000", "http://127.0.0.1:8000"]
+    passkey_challenge_ttl_seconds: int = 300
     
     # Thresholds rischio
     low_risk_threshold: float = 0.33
@@ -64,6 +77,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
+        extra = "ignore"
 
 
 settings = Settings()

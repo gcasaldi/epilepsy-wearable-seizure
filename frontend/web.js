@@ -2,6 +2,7 @@ const TOKEN_KEY = 'authToken';
 const API_BASE_STORAGE_KEY = 'epiguard_api_base';
 const LOCAL_USERS_KEY = 'epiguard_local_users';
 const LOCAL_RECOVERY_TOKENS_KEY = 'epiguard_local_recovery_tokens';
+const LOCAL_FALLBACK_STORAGE_KEY = 'epiguard_local_fallback';
 
 const ROUTE_TO_PAGE = {
     '/': 'index.html',
@@ -98,10 +99,21 @@ function patchInternalLinks() {
 
 const API_BASE = resolveApiBase();
 let riskChart = null;
+let riskV2Chart = null;
+let physiologicalV2Chart = null;
+let medicationV2Chart = null;
 const reminderTimers = {};
 
 function isStaticPagesApiBase() {
     return API_BASE.includes('github.io');
+}
+
+function isLocalFallbackEnabled() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('local_demo') === '1') {
+        localStorage.setItem(LOCAL_FALLBACK_STORAGE_KEY, '1');
+    }
+    return localStorage.getItem(LOCAL_FALLBACK_STORAGE_KEY) === '1';
 }
 
 function parseJsonBody(body) {
@@ -673,6 +685,24 @@ function getToken() {
     return localStorage.getItem(TOKEN_KEY);
 }
 
+function readUsernameFromToken(token) {
+    if (!token) return '';
+    if (token.startsWith('local.')) {
+        const profile = getLocalProfileFromToken();
+        return profile?.email || '';
+    }
+    const parts = token.split('.');
+    if (parts.length < 2) return '';
+    try {
+        const padded = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const normalized = padded + '='.repeat((4 - (padded.length % 4)) % 4);
+        const payload = JSON.parse(atob(normalized));
+        return payload?.sub || '';
+    } catch {
+        return '';
+    }
+}
+
 function setToken(token) {
     localStorage.setItem(TOKEN_KEY, token);
 }
@@ -682,7 +712,7 @@ function clearSession() {
 }
 
 async function api(path, options = {}) {
-    if (isStaticPagesApiBase()) {
+    if (isStaticPagesApiBase() && isLocalFallbackEnabled()) {
         const localResult = await localApiFallback(path, options);
         if (localResult) {
             return localResult;
@@ -758,6 +788,87 @@ function showError(el, message) {
     }
     el.textContent = message;
     el.classList.add('show');
+}
+
+function supportsPasskey() {
+    return Boolean(window.PublicKeyCredential && navigator.credentials && navigator.credentials.create && navigator.credentials.get);
+}
+
+function base64urlToUint8Array(base64url) {
+    const padded = `${base64url}`.replace(/-/g, '+').replace(/_/g, '/');
+    const normalized = padded + '='.repeat((4 - (padded.length % 4)) % 4);
+    const binary = atob(normalized);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+}
+
+function arrayBufferToBase64url(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 1) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function preparePasskeyCreationOptions(options) {
+    const next = structuredClone(options);
+    next.challenge = base64urlToUint8Array(next.challenge);
+    if (next.user && next.user.id) {
+        next.user.id = base64urlToUint8Array(next.user.id);
+    }
+    if (Array.isArray(next.excludeCredentials)) {
+        next.excludeCredentials = next.excludeCredentials.map((entry) => ({
+            ...entry,
+            id: base64urlToUint8Array(entry.id),
+        }));
+    }
+    return next;
+}
+
+function preparePasskeyRequestOptions(options) {
+    const next = structuredClone(options);
+    next.challenge = base64urlToUint8Array(next.challenge);
+    if (Array.isArray(next.allowCredentials)) {
+        next.allowCredentials = next.allowCredentials.map((entry) => ({
+            ...entry,
+            id: base64urlToUint8Array(entry.id),
+        }));
+    }
+    return next;
+}
+
+function serializeCredentialForApi(credential) {
+    const response = credential.response || {};
+    const payload = {
+        id: credential.id,
+        rawId: arrayBufferToBase64url(credential.rawId),
+        type: credential.type,
+        clientExtensionResults: credential.getClientExtensionResults ? credential.getClientExtensionResults() : {},
+        response: {
+            clientDataJSON: arrayBufferToBase64url(response.clientDataJSON),
+        },
+    };
+
+    if (response.attestationObject) {
+        payload.response.attestationObject = arrayBufferToBase64url(response.attestationObject);
+        payload.response.transports = response.getTransports ? response.getTransports() : [];
+    }
+
+    if (response.authenticatorData) {
+        payload.response.authenticatorData = arrayBufferToBase64url(response.authenticatorData);
+    }
+    if (response.signature) {
+        payload.response.signature = arrayBufferToBase64url(response.signature);
+    }
+    if (response.userHandle) {
+        payload.response.userHandle = arrayBufferToBase64url(response.userHandle);
+    }
+
+    return payload;
 }
 
 function providerModeLabel(mode) {
@@ -1155,6 +1266,49 @@ function renderRiskHistory(items) {
     }).join('');
 }
 
+function readDateTimeLocalAsIso(value) {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '';
+    return parsed.toISOString();
+}
+
+function buildRangeQuery(startIso, endIso) {
+    const params = new URLSearchParams();
+    if (startIso) params.set('start', startIso);
+    if (endIso) params.set('end', endIso);
+    const query = params.toString();
+    return query ? `?${query}` : '';
+}
+
+function formatRangeLabel(startIso, endIso) {
+    const from = startIso ? new Date(startIso).toLocaleString() : 'inizio';
+    const to = endIso ? new Date(endIso).toLocaleString() : 'adesso';
+    return `${from} -> ${to}`;
+}
+
+function renderV2RiskHistory(items) {
+    const list = document.getElementById('v2HistoryList');
+    if (!list) return;
+    if (!items || !items.length) {
+        list.innerHTML = '<p class="muted">Nessun dato nello storico per l\'intervallo selezionato.</p>';
+        return;
+    }
+
+    list.innerHTML = items.map((item) => {
+        const pct = Math.round(Number(item.risk_score || 0) * 100);
+        const level = riskLabel(Number(item.risk_score || 0)).toLowerCase();
+        return `
+            <div class="card" style="padding:0.55rem; margin-bottom:0.45rem;">
+                <div style="display:flex; justify-content:space-between; gap:0.6rem; align-items:center;">
+                    <span class="muted">${new Date(item.timestamp).toLocaleString()}</span>
+                    <strong class="risk-${level}">${pct}%</strong>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
 function readDashboardList(username, key) {
     return readJsonStorage(userScopedKey(username, key), []);
 }
@@ -1246,7 +1400,7 @@ function renderReminderList(username, reminders, onDelete) {
     });
 }
 
-function openPrintableReport({ username, riskScore, riskMessage, therapies, events }) {
+function openPrintableReport({ username, riskScore, riskMessage, therapies, events, rangeLabel, historyRows }) {
     const win = window.open('', '_blank', 'noopener');
     if (!win) {
         alert('Popup bloccato: abilita popup per esportare il report PDF.');
@@ -1258,8 +1412,10 @@ function openPrintableReport({ username, riskScore, riskMessage, therapies, even
       <body style="font-family:Arial,sans-serif;padding:24px;">
         <h1>Report Paziente</h1>
         <p><strong>Utente:</strong> ${username}</p>
+        ${rangeLabel ? `<p><strong>Intervallo:</strong> ${rangeLabel}</p>` : ''}
         <p><strong>Rischio attuale:</strong> ${(riskScore * 100).toFixed(1)}% (${riskLabel(riskScore)})</p>
         <p><strong>Messaggio AI:</strong> ${riskMessage}</p>
+        ${Array.isArray(historyRows) && historyRows.length ? `<h2>Storico rischio</h2><ul>${historyRows.map((h) => `<li>${new Date(h.timestamp).toLocaleString()} - ${(Number(h.risk_score || 0) * 100).toFixed(1)}%</li>`).join('')}</ul>` : ''}
         <h2>Terapia</h2>
         <ul>${therapies.map((t) => `<li>${t.medication_name} ${t.dosage || ''} ${t.intake_time || ''}</li>`).join('')}</ul>
         <h2>Eventi clinici</h2>
@@ -1513,6 +1669,31 @@ function updateBleIndicator(mode) {
     label.textContent = 'BLE: non attivo';
 }
 
+function describeMobileBleRoute() {
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    const secure = window.isSecureContext;
+    const hasWebBluetooth = Boolean(navigator.bluetooth);
+
+    if (isIOS) {
+        return 'iPhone/iPad rilevato: Web Bluetooth non supportato in Safari. Strada consigliata: app companion (iOS) + Apple Health + sync backend.';
+    }
+
+    if (isAndroid && hasWebBluetooth && secure) {
+        return 'Android compatibile: puoi usare subito il pulsante "Attiva Bluetooth assistito" (Chrome + HTTPS).';
+    }
+
+    if (isAndroid && !secure) {
+        return 'Android rilevato ma contesto non sicuro: abilita HTTPS (o localhost) per usare Web Bluetooth.';
+    }
+
+    if (hasWebBluetooth) {
+        return 'Web Bluetooth disponibile: prova "Attiva Bluetooth assistito". Se il watch non espone GATT, usa bridge app/OAuth provider.';
+    }
+
+    return 'Web Bluetooth non disponibile su questo browser: usa bridge tramite app mobile (Health Connect/Apple Health) o integrazione OAuth provider.';
+}
+
 function renderAlwaysOnAiPanel({ username, riskScore, hrCurrent, hrvCurrent, riskMessage }) {
     const statusEl = document.getElementById('aiPresenceStatus');
     const adviceEl = document.getElementById('aiPresenceAdvice');
@@ -1743,10 +1924,14 @@ async function boot() {
 
     if (page === 'login') {
         const error = document.getElementById('loginError');
+        const passkeyInfo = document.getElementById('passkeyInfo');
         const apiBaseInfo = document.getElementById('loginApiBase');
         const apiBaseInput = document.getElementById('apiBaseInput');
         if (apiBaseInfo) {
             apiBaseInfo.textContent = API_BASE;
+        }
+        if (isStaticPagesApiBase() && !isLocalFallbackEnabled()) {
+            showError(error, 'Modalita demo locale disattivata: imposta un backend API reale per salvare dati e credenziali in database.');
         }
         if (apiBaseInput) {
             apiBaseInput.value = localStorage.getItem(API_BASE_STORAGE_KEY) || '';
@@ -1803,6 +1988,111 @@ async function boot() {
                     goTo('/dashboard');
                 } catch (err) {
                     showError(error, err.message || 'Login locale non riuscito');
+                }
+            });
+        }
+
+        const passkeyEmailInput = document.getElementById('passkeyEmail');
+        const passkeyRegisterBtn = document.getElementById('passkeyRegisterBtn');
+        const passkeyLoginBtn = document.getElementById('passkeyLoginBtn');
+
+        const setPasskeyInfo = (message) => {
+            if (passkeyInfo) {
+                passkeyInfo.textContent = message || '';
+            }
+        };
+
+        const readPasskeyEmail = () => {
+            const email = (passkeyEmailInput?.value || '').trim().toLowerCase();
+            if (!email || !email.includes('@')) {
+                throw new Error('Inserisci una email valida per usare la passkey');
+            }
+            return email;
+        };
+
+        if (!supportsPasskey()) {
+            if (passkeyRegisterBtn) passkeyRegisterBtn.disabled = true;
+            if (passkeyLoginBtn) passkeyLoginBtn.disabled = true;
+            setPasskeyInfo('Passkey non supportata su questo browser/dispositivo.');
+        }
+
+        if (passkeyRegisterBtn) {
+            passkeyRegisterBtn.addEventListener('click', async () => {
+                showError(error, '');
+                try {
+                    if (!supportsPasskey()) {
+                        throw new Error('Passkey non supportata su questo dispositivo');
+                    }
+
+                    const email = readPasskeyEmail();
+                    setPasskeyInfo('Preparazione registrazione passkey...');
+
+                    const begin = await api('/auth/passkey/register/options', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email }),
+                    });
+
+                    const creationOptions = preparePasskeyCreationOptions(begin.options);
+                    const credential = await navigator.credentials.create({ publicKey: creationOptions });
+                    if (!credential) {
+                        throw new Error('Registrazione passkey annullata');
+                    }
+
+                    await api('/auth/passkey/register/complete', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            email,
+                            credential: serializeCredentialForApi(credential),
+                        }),
+                    });
+
+                    setPasskeyInfo('Passkey registrata. Ora puoi accedere con biometria.');
+                } catch (err) {
+                    setPasskeyInfo('');
+                    showError(error, err.message || 'Registrazione passkey non riuscita');
+                }
+            });
+        }
+
+        if (passkeyLoginBtn) {
+            passkeyLoginBtn.addEventListener('click', async () => {
+                showError(error, '');
+                try {
+                    if (!supportsPasskey()) {
+                        throw new Error('Passkey non supportata su questo dispositivo');
+                    }
+
+                    const email = readPasskeyEmail();
+                    setPasskeyInfo('Preparazione login passkey...');
+
+                    const begin = await api('/auth/passkey/login/options', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email }),
+                    });
+
+                    const requestOptions = preparePasskeyRequestOptions(begin.options);
+                    const assertion = await navigator.credentials.get({ publicKey: requestOptions });
+                    if (!assertion) {
+                        throw new Error('Accesso passkey annullato');
+                    }
+
+                    const res = await api('/auth/passkey/login/complete', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            email,
+                            credential: serializeCredentialForApi(assertion),
+                        }),
+                    });
+
+                    setToken(res.access_token);
+                    goTo('/dashboard');
+                } catch (err) {
+                    setPasskeyInfo('');
+                    showError(error, err.message || 'Login passkey non riuscito');
                 }
             });
         }
@@ -2381,6 +2671,7 @@ async function boot() {
                     riskMessage: lastRiskMessage,
                     therapies: therapiesState,
                     events: eventsState,
+                    rangeLabel: 'Ultime 24h',
                 });
             });
         }
@@ -2411,6 +2702,208 @@ async function boot() {
             hrCurrent,
             hrvCurrent,
         });
+    }
+
+    if (page === 'dashboard-v2') {
+        const token = getToken();
+        if (!token) {
+            goTo('/login');
+            return;
+        }
+
+        const derivedUsername = readUsernameFromToken(token) || 'utente';
+
+        const statusEl = document.getElementById('v2Status');
+        const startInput = document.getElementById('v2RangeStart');
+        const endInput = document.getElementById('v2RangeEnd');
+        const applyBtn = document.getElementById('v2ApplyRangeBtn');
+        const resetBtn = document.getElementById('v2ResetRangeBtn');
+        const exportCsvBtn = document.getElementById('v2ExportCsvBtn');
+        const exportPdfBtn = document.getElementById('v2ExportPdfBtn');
+        const logoutBtn = document.getElementById('logout-btn');
+
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', (event) => {
+                event.preventDefault();
+                clearSession();
+                goTo('/login');
+            });
+        }
+
+        const now = new Date();
+        const dayAgo = new Date(now.getTime() - 24 * 3600 * 1000);
+        if (startInput) startInput.value = dayAgo.toISOString().slice(0, 16);
+        if (endInput) endInput.value = now.toISOString().slice(0, 16);
+
+        let lastHistoryRows = [];
+        let lastRiskScore = 0;
+        let lastRiskMessage = 'Nessun dato';
+
+        const drawRiskChartV2 = (rows) => {
+            const canvas = document.getElementById('risk-chart');
+            if (!canvas || typeof Chart === 'undefined') return;
+            const labels = rows.map((d) => new Date(d.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            const values = rows.map((d) => Number(d.risk_score || 0));
+            if (riskV2Chart) riskV2Chart.destroy();
+            riskV2Chart = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Punteggio Rischio',
+                        data: values,
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        fill: true,
+                        tension: 0.3,
+                    }],
+                },
+                options: { responsive: true, scales: { y: { beginAtZero: true, max: 1 } } },
+            });
+        };
+
+        const drawPhysioChartV2 = async () => {
+            const data = await api('/api/physiological-summary');
+            document.getElementById('current-hr').textContent = Array.isArray(data.hr) && data.hr.length ? `${data.hr[data.hr.length - 1]} bpm` : 'N/D';
+            document.getElementById('current-hrv').textContent = Array.isArray(data.hrv) && data.hrv.length ? `${data.hrv[data.hrv.length - 1]} ms` : 'N/D';
+
+            const canvas = document.getElementById('physiological-chart');
+            if (!canvas || typeof Chart === 'undefined') return;
+            if (physiologicalV2Chart) physiologicalV2Chart.destroy();
+            physiologicalV2Chart = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: (data.labels || []).slice(),
+                    datasets: [
+                        { label: 'Battito Cardiaco (bpm)', data: (data.hr || []).slice(), borderColor: 'rgba(54, 162, 235, 1)', yAxisID: 'y' },
+                        { label: 'HRV (ms)', data: (data.hrv || []).slice(), borderColor: 'rgba(75, 192, 192, 1)', yAxisID: 'y1' },
+                    ],
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { type: 'linear', display: true, position: 'left' },
+                        y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false } },
+                    },
+                },
+            });
+        };
+
+        const drawMedicationChartV2 = async () => {
+            const data = await api('/api/medication-impact');
+            const canvas = document.getElementById('medication-impact-chart');
+            if (!canvas || typeof Chart === 'undefined') return;
+            if (medicationV2Chart) medicationV2Chart.destroy();
+            medicationV2Chart = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: data.labels || [],
+                    datasets: [
+                        { label: 'Rischio con Farmaco', data: data.with_medication || [], backgroundColor: 'rgba(75, 192, 192, 0.6)' },
+                        { label: 'Rischio senza Farmaco (stimato)', data: data.without_medication || [], backgroundColor: 'rgba(255, 99, 132, 0.6)' },
+                    ],
+                },
+                options: { responsive: true, scales: { y: { beginAtZero: true, max: 1 } } },
+            });
+        };
+
+        const loadRiskRange = async () => {
+            const startIso = readDateTimeLocalAsIso(startInput?.value || '');
+            const endIso = readDateTimeLocalAsIso(endInput?.value || '');
+            if (startIso && endIso && new Date(startIso) > new Date(endIso)) {
+                if (statusEl) statusEl.textContent = 'Intervallo non valido: la data di inizio supera la fine.';
+                return;
+            }
+            const query = buildRangeQuery(startIso, endIso);
+            const rows = await api(`/api/risk-history${query}`);
+            lastHistoryRows = Array.isArray(rows) ? rows : [];
+
+            renderV2RiskHistory(lastHistoryRows);
+            drawRiskChartV2(lastHistoryRows);
+
+            const last = lastHistoryRows.length ? lastHistoryRows[lastHistoryRows.length - 1] : null;
+            lastRiskScore = Number(last?.risk_score || 0);
+            lastRiskMessage = last ? `Ultimo rischio ${Math.round(lastRiskScore * 100)}%` : 'Nessun dato nel range selezionato';
+
+            const riskEl = document.getElementById('current-risk');
+            if (riskEl) riskEl.textContent = last ? `${(lastRiskScore * 100).toFixed(1)}%` : 'N/D';
+            if (statusEl) statusEl.textContent = `Storico aggiornato: ${lastHistoryRows.length} punti in ${formatRangeLabel(startIso, endIso)}.`;
+        };
+
+        if (applyBtn) {
+            applyBtn.addEventListener('click', async () => {
+                try {
+                    await loadRiskRange();
+                } catch (err) {
+                    if (statusEl) statusEl.textContent = `Errore caricamento storico: ${err.message}`;
+                }
+            });
+        }
+
+        if (resetBtn) {
+            resetBtn.addEventListener('click', async () => {
+                const resetNow = new Date();
+                const resetDayAgo = new Date(resetNow.getTime() - 24 * 3600 * 1000);
+                if (startInput) startInput.value = resetDayAgo.toISOString().slice(0, 16);
+                if (endInput) endInput.value = resetNow.toISOString().slice(0, 16);
+                try {
+                    await loadRiskRange();
+                } catch (err) {
+                    if (statusEl) statusEl.textContent = `Errore reset storico: ${err.message}`;
+                }
+            });
+        }
+
+        if (exportCsvBtn) {
+            exportCsvBtn.addEventListener('click', async () => {
+                try {
+                    const startIso = readDateTimeLocalAsIso(startInput?.value || '');
+                    const endIso = readDateTimeLocalAsIso(endInput?.value || '');
+                    const token = getToken();
+                    const query = buildRangeQuery(startIso, endIso);
+                    const response = await fetch(`${API_BASE}/api/export/risk-history.csv${query}`, {
+                        headers: token ? { Authorization: `Bearer ${token}` } : {},
+                    });
+                    if (!response.ok) {
+                        throw new Error(`Export non riuscito (${response.status})`);
+                    }
+                    const blob = await response.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'risk-history.csv';
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    URL.revokeObjectURL(url);
+                    if (statusEl) statusEl.textContent = `Export CSV completato per ${formatRangeLabel(startIso, endIso)}.`;
+                } catch (err) {
+                    if (statusEl) statusEl.textContent = `Errore export CSV: ${err.message}`;
+                }
+            });
+        }
+
+        if (exportPdfBtn) {
+            exportPdfBtn.addEventListener('click', () => {
+                const startIso = readDateTimeLocalAsIso(startInput?.value || '');
+                const endIso = readDateTimeLocalAsIso(endInput?.value || '');
+                openPrintableReport({
+                    username: derivedUsername,
+                    riskScore: lastRiskScore,
+                    riskMessage: lastRiskMessage,
+                    therapies: [],
+                    events: [],
+                    rangeLabel: formatRangeLabel(startIso, endIso),
+                    historyRows: lastHistoryRows,
+                });
+            });
+        }
+
+        try {
+            await Promise.all([loadRiskRange(), drawPhysioChartV2(), drawMedicationChartV2()]);
+        } catch (err) {
+            if (statusEl) statusEl.textContent = `Errore inizializzazione dashboard avanzata: ${err.message}`;
+        }
     }
 
     if (page === 'consents') {
@@ -2532,6 +3025,10 @@ async function boot() {
 
         const bleBtn = document.getElementById('wearableBleAssistBtn');
         const bleStatus = document.getElementById('wearableBleAssistStatus');
+        const mobileBleRouteStatus = document.getElementById('mobileBleRouteStatus');
+        if (mobileBleRouteStatus) {
+            mobileBleRouteStatus.textContent = describeMobileBleRoute();
+        }
         const bleMeta = readJsonStorage(userScopedKey(user.username || 'user', 'bridge_ble_meta'), null);
         updateBleIndicator(bleMeta?.last_bridge_at ? 'warn' : 'off');
         if (bleBtn) {

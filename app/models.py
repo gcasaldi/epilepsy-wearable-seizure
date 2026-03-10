@@ -61,6 +61,30 @@ class PasswordRecoveryResponse(BaseModel):
     expires_in_seconds: Optional[int] = None
 
 
+class PasskeyBeginRequest(BaseModel):
+    """Richiesta avvio flusso passkey per una email."""
+    email: str = Field(..., min_length=5, description="Email account")
+
+
+class PasskeyCompleteRequest(BaseModel):
+    """Conferma challenge passkey con payload credenziale WebAuthn."""
+    email: str = Field(..., min_length=5, description="Email account")
+    credential: dict = Field(..., description="Credential JSON restituita da WebAuthn")
+
+
+class PasskeyOptionsResponse(BaseModel):
+    """Opzioni da passare a navigator.credentials.*"""
+    options: dict
+    expires_in_seconds: int
+
+
+class PasskeyStatusResponse(BaseModel):
+    """Stato passkey configurate per account."""
+    email: str
+    has_passkeys: bool
+    count: int
+
+
 # --- Dati Fisiologici ---
 
 class PhysiologicalData(BaseModel):
@@ -212,3 +236,82 @@ class WearableDisconnectResponse(BaseModel):
     provider_key: str
     status: str
     message: str
+
+
+class WearableSyncMetricRecord(BaseModel):
+    """Record metrica singola in payload di sincronizzazione wearable."""
+    idempotency_key: str = Field(..., min_length=8)
+    metric: str = Field(..., min_length=2)
+    value: float
+    unit: str = Field(..., min_length=1)
+    timestamp: datetime
+    source: str = Field(default="health_connect", min_length=2)
+
+
+class WearableSyncRequest(BaseModel):
+    """Payload batch per endpoint /wearable/sync."""
+    device_id: str = Field(..., min_length=3)
+    provider: str = Field(default="health_connect")
+    records: list[WearableSyncMetricRecord] = Field(default_factory=list)
+
+
+class WearableSyncResponse(BaseModel):
+    """Risposta endpoint /wearable/sync."""
+    accepted: int
+    deduplicated: int
+    rejected: int
+    inserted: int
+    sync_id: str
+
+
+class WearableStatusResponse(BaseModel):
+    """Stato sintetico sincronizzazione wearable."""
+    status: str
+    last_sync_at: Optional[datetime] = None
+    signals: dict[str, float | int] = Field(default_factory=dict)
+
+
+class JournalEventRequest(BaseModel):
+    """Input rapido diario eventi da mobile/web."""
+    event_type: str = Field(..., min_length=2)
+    severity: Optional[str] = Field(default=None)
+    notes: Optional[str] = Field(default=None, max_length=500)
+    occurred_at: Optional[datetime] = None
+
+
+class JournalEventResponse(BaseModel):
+    """Risposta creazione evento diario."""
+    event_id: str
+    status: str
+
+
+class JournalHistoryItem(BaseModel):
+    """Elemento storico diario."""
+    event_id: str
+    event_type: str
+    severity: Optional[int] = None
+    notes: Optional[str] = None
+    occurred_at: datetime
+
+
+class RiskCurrentResponse(BaseModel):
+    """Rischio corrente calcolato da pipeline time-series."""
+    level: str
+    score: float
+    window: str
+    factors: list[str]
+    updated_at: datetime
+
+
+class RiskTimelinePoint(BaseModel):
+    """Punto timeline rischio."""
+    timestamp: datetime
+    score: float
+    level: str
+
+
+class DashboardSummaryResponse(BaseModel):
+    """Summary dashboard coerente per web e mobile."""
+    risk: RiskCurrentResponse
+    wearable_status: WearableStatusResponse
+    journal_events_24h: int

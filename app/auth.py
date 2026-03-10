@@ -88,7 +88,7 @@ def get_local_account_profile(username: str, password: str) -> Optional[dict]:
     Returns:
         dict con email/account_type/provider_status/auth_provider oppure None.
     """
-    if username == settings.admin_username:
+    if settings.enable_legacy_admin_login and username == settings.admin_username:
         authenticated_username = authenticate_user(username, password)
         if not authenticated_username:
             return None
