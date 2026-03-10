@@ -129,6 +129,9 @@ class WatchPhysiologicalData(BaseModel):
     heart_rate: int = Field(..., ge=30, le=220, description="Battito cardiaco (bpm) letto dal device")
     rr_interval_ms: Optional[float] = Field(default=None, ge=200, le=3000, description="Intervallo RR medio (ms) se disponibile")
     hrv: Optional[float] = Field(default=None, ge=1, le=220, description="HRV reale se fornita dal device")
+    spo2: Optional[float] = Field(default=None, ge=50, le=100, description="SpO2 reale se esposta dal device")
+    blood_pressure_systolic: Optional[float] = Field(default=None, ge=40, le=280, description="Pressione sistolica reale (mmHg)")
+    blood_pressure_diastolic: Optional[float] = Field(default=None, ge=30, le=200, description="Pressione diastolica reale (mmHg)")
     timestamp: Optional[datetime] = Field(default_factory=datetime.now, description="Timestamp rilevazione")
 
     class Config:
@@ -137,6 +140,9 @@ class WatchPhysiologicalData(BaseModel):
                 "heart_rate": 74,
                 "rr_interval_ms": 812,
                 "hrv": 812,
+                "spo2": 97,
+                "blood_pressure_systolic": 121,
+                "blood_pressure_diastolic": 77,
             }
         }
 
