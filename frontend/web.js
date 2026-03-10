@@ -2694,6 +2694,10 @@ async function boot() {
         const apiBaseInfo = document.getElementById('appDownloadApiBaseInfo');
         const apiBaseInput = document.getElementById('appDownloadApiBaseInput');
         const apiBaseForm = document.getElementById('appDownloadApiBaseForm');
+        const platformBadge = document.getElementById('appPlatformBadge');
+        const installSteps = document.getElementById('appInstallSteps');
+        const installNowBtn = document.getElementById('installNowBtn');
+        const copyApkUrlBtn = document.getElementById('copyApkUrlBtn');
         if (apiBaseInfo) {
             apiBaseInfo.textContent = API_BASE;
         }
@@ -2795,10 +2799,67 @@ async function boot() {
         }
 
         const apkDirectUrl = document.getElementById('apkDirectUrl');
+        const resolvedUrl = useDirectApk ? apkTargetUrl : directApkUrl;
         if (apkDirectUrl) {
-            const resolvedUrl = useDirectApk ? apkTargetUrl : directApkUrl;
             apkDirectUrl.href = resolvedUrl;
             apkDirectUrl.textContent = resolvedUrl;
+        }
+
+        const ua = navigator.userAgent || '';
+        const isIos = /iPhone|iPad|iPod/i.test(ua);
+        const isAndroid = /Android/i.test(ua);
+        const isMobile = isMobileBrowser();
+
+        if (platformBadge) {
+            if (isIos) {
+                platformBadge.textContent = 'Dispositivo: iOS';
+            } else if (isAndroid) {
+                platformBadge.textContent = 'Dispositivo: Android';
+            } else {
+                platformBadge.textContent = 'Dispositivo: Desktop';
+            }
+        }
+
+        if (installSteps) {
+            if (isIos) {
+                installSteps.textContent = 'Su iOS usa App Store/TestFlight. Il file APK non e installabile su iPhone o iPad.';
+            } else if (isAndroid && useDirectApk) {
+                installSteps.textContent = 'Tocca Installa adesso, conferma il download e abilita sorgenti sconosciute se richiesto.';
+            } else if (isAndroid) {
+                installSteps.textContent = 'APK non confermato dal backend: prova il link diretto oppure apri il Play Store.';
+            } else {
+                installSteps.textContent = 'Da desktop: scansiona il QR con il telefono Android o usa il link diretto APK.';
+            }
+        }
+
+        if (installNowBtn) {
+            if (isIos) {
+                installNowBtn.href = IOS_STORE_URL;
+                installNowBtn.textContent = 'Apri App Store';
+            } else if (isAndroid) {
+                installNowBtn.href = resolvedUrl;
+                installNowBtn.textContent = useDirectApk ? 'Installa APK adesso' : 'Prova APK diretto';
+            } else {
+                installNowBtn.href = resolvedUrl;
+                installNowBtn.textContent = 'Apri link APK';
+            }
+        }
+
+        if (copyApkUrlBtn) {
+            copyApkUrlBtn.addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(resolvedUrl);
+                    copyApkUrlBtn.textContent = 'Link copiato';
+                    setTimeout(() => {
+                        copyApkUrlBtn.textContent = 'Copia link APK';
+                    }, 1600);
+                } catch {
+                    copyApkUrlBtn.textContent = 'Copia non riuscita';
+                    setTimeout(() => {
+                        copyApkUrlBtn.textContent = 'Copia link APK';
+                    }, 1600);
+                }
+            });
         }
 
         const apkQrHint = document.getElementById('apkQrHint');
@@ -2826,12 +2887,9 @@ async function boot() {
             }
         }
 
-        if (isMobileBrowser()) {
+        if (isMobile) {
             const mobileNotice = document.getElementById('mobileRedirectNotice');
             if (mobileNotice) mobileNotice.classList.remove('hidden');
-            setTimeout(() => {
-                window.location.href = useDirectApk ? apkTargetUrl : directApkUrl;
-            }, 1200);
         }
     }
 
