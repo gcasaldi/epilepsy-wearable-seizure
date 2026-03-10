@@ -2181,6 +2181,153 @@ function parseHeartRateMeasurement(dataView) {
     return dataView.getUint8(1);
 }
 
+const bleLiveImportState = {
+    running: false,
+    device: null,
+    server: null,
+    characteristic: null,
+    listener: null,
+};
+
+function estimateHrvFromHeartRate(hr) {
+    const boundedHr = Math.max(45, Math.min(180, Number(hr) || 72));
+    return Math.max(20, Math.min(95, Math.round(62 - ((boundedHr - 60) * 0.45))));
+}
+
+async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnalysis }) {
+    if (bleLiveImportState.running) {
+        throw new Error('Import BLE gia attivo');
+    }
+    if (!window.isSecureContext) {
+        throw new Error('Bluetooth richiede HTTPS o localhost');
+    }
+    if (!navigator.bluetooth) {
+        throw new Error('Web Bluetooth non supportato su questo browser/dispositivo');
+    }
+
+    onStep?.('Seleziona il dispositivo Bluetooth da importare...');
+
+    const device = await navigator.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: ['heart_rate', 'battery_service', 'device_information'],
+    });
+
+    const server = await device.gatt?.connect();
+    if (!server) {
+        throw new Error('Connessione GATT non disponibile');
+    }
+
+    const service = await server.getPrimaryService('heart_rate');
+    const characteristic = await service.getCharacteristic('heart_rate_measurement');
+
+    bleLiveImportState.running = true;
+    bleLiveImportState.device = device;
+    bleLiveImportState.server = server;
+    bleLiveImportState.characteristic = characteristic;
+
+    let sampleCount = 0;
+    let lastSendMs = 0;
+    let sending = false;
+
+    const listener = async (event) => {
+        if (!bleLiveImportState.running) return;
+        const value = event?.target?.value;
+        if (!value) return;
+
+        const hr = Number(parseHeartRateMeasurement(value));
+        if (!Number.isFinite(hr)) return;
+
+        sampleCount += 1;
+        onTelemetry?.({
+            heart_rate: hr,
+            sample_count: sampleCount,
+            timestamp: new Date().toISOString(),
+            device_name: device.name || 'BLE device',
+        });
+
+        // Invia ai modelli AI ogni 10 secondi per evitare spam al backend.
+        const nowMs = Date.now();
+        if ((nowMs - lastSendMs) < 10000 || sending) return;
+        lastSendMs = nowMs;
+        sending = true;
+
+        const sleepInput = Number(document.getElementById('manualSleepHours')?.value || 7);
+        const movementInput = Number(document.getElementById('manualMovement')?.value || 110);
+        const payload = {
+            heart_rate: hr,
+            hrv: estimateHrvFromHeartRate(hr),
+            sleep_hours: Number.isFinite(sleepInput) ? sleepInput : 7,
+            movement: Number.isFinite(movementInput) ? movementInput : 110,
+            medication_taken: true,
+        };
+
+        try {
+            const prediction = await api('/api/predict', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+
+            writeJsonStorage(userScopedKey(username, 'bridge_ble_meta'), {
+                device_name: device.name || 'BLE device',
+                last_bridge_at: new Date().toISOString(),
+                sample_hr: hr,
+                mode: 'live',
+                samples_total: sampleCount,
+            });
+
+            onAnalysis?.({ prediction, payload, sampleCount, deviceName: device.name || 'BLE device' });
+        } catch (err) {
+            onStep?.(`Campione letto (${hr} bpm), ma analisi AI fallita: ${err.message}`);
+        } finally {
+            sending = false;
+        }
+    };
+
+    bleLiveImportState.listener = listener;
+    characteristic.addEventListener('characteristicvaluechanged', listener);
+    await characteristic.startNotifications();
+
+    onStep?.(`Import BLE live attivo: ${device.name || 'BLE device'} con analisi AI continua.`);
+
+    return {
+        deviceName: device.name || 'BLE device',
+        stop: async () => {
+            await stopBleLiveImportSession();
+        },
+    };
+}
+
+async function stopBleLiveImportSession() {
+    if (!bleLiveImportState.running) return;
+
+    const { characteristic, listener, server } = bleLiveImportState;
+
+    try {
+        if (characteristic && listener) {
+            characteristic.removeEventListener('characteristicvaluechanged', listener);
+        }
+    } catch {}
+
+    try {
+        if (characteristic) {
+            await characteristic.stopNotifications();
+        }
+    } catch {}
+
+    try {
+        if (server) {
+            server.disconnect();
+        }
+    } catch {}
+
+    bleLiveImportState.running = false;
+    bleLiveImportState.device = null;
+    bleLiveImportState.server = null;
+    bleLiveImportState.characteristic = null;
+    bleLiveImportState.listener = null;
+}
+
 async function readHeartRateFromGatt(device, onStep) {
     const server = await device.gatt?.connect();
     if (!server) {
@@ -3085,7 +3232,9 @@ async function boot() {
         }
 
         const bridgeBtn = document.getElementById('bridgeBleAssistBtn');
+        const bridgeStopBtn = document.getElementById('bridgeBleStopBtn');
         const bridgeStatus = document.getElementById('bridgeBleStatus');
+        const bleLiveStats = document.getElementById('bleLiveStats');
         const dashboardBleRouteStatus = document.getElementById('mobileBleRouteStatus');
         const bleRunCompatibility = document.getElementById('bleRunCompatibility');
         const bleOpenCompanion = document.getElementById('bleOpenCompanion');
@@ -3164,12 +3313,83 @@ async function boot() {
                 updateBleIndicator('warn');
                 if (bridgeStatus) bridgeStatus.textContent = 'Bridge BLE in corso...';
                 try {
-                    const out = await startBleAssistedBridge(dashboardUser, (step) => {
-                        if (bridgeStatus) bridgeStatus.textContent = step;
+                    const out = await startBleLiveImportSession({
+                        username: dashboardUser,
+                        onStep: (step) => {
+                            if (bridgeStatus) bridgeStatus.textContent = step;
+                        },
+                        onTelemetry: (sample) => {
+                            hrCurrent = Number(sample.heart_rate || hrCurrent);
+                            if (bleLiveStats) {
+                                bleLiveStats.textContent = `Campioni BLE importati: ${sample.sample_count} · ultimo HR ${sample.heart_rate} bpm`;
+                            }
+                            const manualHeartRate = document.getElementById('manualHeartRate');
+                            if (manualHeartRate) {
+                                manualHeartRate.value = String(Math.round(sample.heart_rate));
+                            }
+                            setDataQualityBadge(dashboardUser);
+                            renderTelemetryHealthPanel(dashboardUser);
+                        },
+                        onAnalysis: async ({ prediction, payload, sampleCount, deviceName }) => {
+                            lastRiskScore = Number(prediction.risk_score || lastRiskScore || 0);
+                            lastRiskMessage = prediction.message || lastRiskMessage || 'Analisi aggiornata da BLE';
+                            hrvCurrent = Number(payload.hrv || hrvCurrent || 0);
+
+                            const riskEl = document.getElementById('lastRisk');
+                            const msgEl = document.getElementById('lastMessage');
+                            if (riskEl) {
+                                riskEl.textContent = riskLabel(lastRiskScore);
+                            }
+                            if (msgEl) {
+                                msgEl.textContent = `${lastRiskMessage} (BLE live)`;
+                            }
+
+                            renderDeepAiAnalysis({
+                                riskScore: lastRiskScore,
+                                riskMessage: lastRiskMessage,
+                                hrCurrent,
+                                hrvCurrent,
+                                medWith,
+                                medWithout,
+                            });
+                            renderAlwaysOnAiPanel({
+                                username: dashboardUser,
+                                riskScore: lastRiskScore,
+                                hrCurrent,
+                                hrvCurrent,
+                                riskMessage: lastRiskMessage,
+                            });
+                            renderAiTips(buildAiTips({
+                                riskText: lastRiskMessage,
+                                riskScore: lastRiskScore,
+                                therapies: therapiesState,
+                            }));
+                            evaluateAlertRules({
+                                username: dashboardUser,
+                                rules: getAlertRules(dashboardUser),
+                                riskScore: lastRiskScore,
+                                hrCurrent,
+                                hrvCurrent,
+                            });
+
+                            if (bridgeStatus) {
+                                bridgeStatus.textContent = `Import BLE live: ${deviceName} · campione ${sampleCount} analizzato dalla AI.`;
+                            }
+
+                            // Ogni 3 analisi aggiorna anche lo storico dal backend.
+                            if (sampleCount % 3 === 0) {
+                                try {
+                                    const history = await api('/api/risk-history');
+                                    renderRiskChart(history);
+                                    renderRiskHistory(history);
+                                } catch {}
+                            }
+                        },
                     });
                     if (bridgeStatus) {
-                        bridgeStatus.textContent = `Bridge completato con ${out.deviceName} (HR ${out.hr} bpm).`;
+                        bridgeStatus.textContent = `Import BLE live attivo con ${out.deviceName}.`;
                     }
+                    if (bridgeStopBtn) bridgeStopBtn.disabled = false;
                     updateBleIndicator('on');
                     setDataQualityBadge(dashboardUser);
                     renderTelemetryHealthPanel(dashboardUser);
@@ -3190,7 +3410,27 @@ async function boot() {
                     updateBleIndicator('off');
                     runDashboardOnboarding({ username: dashboardUser, report: bleCompatibilityReport(), bridgeStatus });
                 } finally {
+                    bridgeBtn.disabled = bleLiveImportState.running;
+                }
+            });
+        }
+
+        if (bridgeStopBtn) {
+            bridgeStopBtn.disabled = true;
+            bridgeStopBtn.addEventListener('click', async () => {
+                try {
+                    await stopBleLiveImportSession();
+                    updateBleIndicator('warn');
+                    if (bridgeStatus) {
+                        bridgeStatus.textContent = 'Import BLE live fermato. I dati gia inviati restano disponibili per analisi AI.';
+                    }
+                } catch (err) {
+                    if (bridgeStatus) {
+                        bridgeStatus.textContent = `Errore stop import BLE: ${err.message}`;
+                    }
+                } finally {
                     bridgeBtn.disabled = false;
+                    bridgeStopBtn.disabled = true;
                 }
             });
         }
