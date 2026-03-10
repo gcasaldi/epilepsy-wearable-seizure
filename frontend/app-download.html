@@ -36,15 +36,16 @@
           <a id="androidStoreLink" href="https://play.google.com/store/apps/details?id=com.epilepsy.wearmonitor" class="btn btn-outline" target="_blank" rel="noopener noreferrer">Google Play</a>
           <a id="smartStoreLink" href="https://play.google.com/store/apps/details?id=com.epilepsy.wearmonitor" class="btn btn-primary">Apri store consigliato</a>
           <a id="playSearchLink" href="https://play.google.com/store/search?q=epilepsy%20wear%20monitor&c=apps" class="btn btn-outline" target="_blank" rel="noopener noreferrer">Cerca su Play Store</a>
-          <a id="apkDownloadLink" href="/app/apk" class="btn btn-primary">Scarica APK locale (consigliato)</a>
+          <a id="apkDownloadLink" href="https://gcasaldi.github.io/epilepsy-wearable-seizure/wear-app/app/build/outputs/apk/debug/app-debug.apk" class="btn btn-primary">Scarica APK locale (consigliato)</a>
         </div>
         <p class="muted" style="margin-top:10px;">Se la scheda Play non è ancora visibile, usa il QR APK qui a destra per installare direttamente.</p>
         <p id="apkStatusMessage" class="muted" style="margin-top:8px;"></p>
       </article>
       <article class="card">
         <h3>QR code APK locale</h3>
-        <img id="appQrImage" class="qr-image" alt="QR code download app">
+        <img id="appQrImage" class="qr-image" alt="QR code download app" src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&amp;data=https%3A%2F%2Fgcasaldi.github.io%2Fepilepsy-wearable-seizure%2Fwear-app%2Fapp%2Fbuild%2Foutputs%2Fapk%2Fdebug%2Fapp-debug.apk">
         <p class="muted" style="margin-top:10px;">Scansiona per download rapido dell'APK da questo server.</p>
+        <p class="muted" style="margin-top:8px; word-break:break-all;">Link diretto APK: <a id="apkDirectUrl" href="https://gcasaldi.github.io/epilepsy-wearable-seizure/wear-app/app/build/outputs/apk/debug/app-debug.apk" target="_blank" rel="noopener noreferrer">https://gcasaldi.github.io/epilepsy-wearable-seizure/wear-app/app/build/outputs/apk/debug/app-debug.apk</a></p>
         <p id="apkQrHint" class="muted" style="margin-top:8px;"></p>
         <p class="muted" style="margin-top:8px;">Backend API corrente: <code id="appDownloadApiBaseInfo"></code></p>
         <form id="appDownloadApiBaseForm" class="demo-form" style="margin-top:0.8rem;">

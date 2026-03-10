@@ -1332,6 +1332,29 @@ function qrImageUrl(targetUrl) {
     return `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(targetUrl)}`;
 }
 
+function qrImageFallbackUrl(targetUrl) {
+    return `https://quickchart.io/qr?size=240&text=${encodeURIComponent(targetUrl)}`;
+}
+
+function setQrWithFallback(imgEl, targetUrl) {
+    if (!imgEl || !targetUrl) return;
+
+    const primary = qrImageUrl(targetUrl);
+    const fallback = qrImageFallbackUrl(targetUrl);
+    let triedFallback = false;
+
+    imgEl.onerror = () => {
+        if (!triedFallback) {
+            triedFallback = true;
+            imgEl.src = fallback;
+            return;
+        }
+        imgEl.alt = `QR non disponibile. Usa questo link: ${targetUrl}`;
+    };
+
+    imgEl.src = primary;
+}
+
 function localApkUrl() {
     return `${API_BASE}${LOCAL_APK_PATH}`;
 }
@@ -2765,10 +2788,17 @@ async function boot() {
         const qrImage = document.getElementById('appQrImage');
         if (qrImage) {
             if (useDirectApk) {
-                qrImage.src = qrImageUrl(apkTargetUrl);
+                setQrWithFallback(qrImage, apkTargetUrl);
             } else {
-                qrImage.src = qrImageUrl(directApkUrl);
+                setQrWithFallback(qrImage, directApkUrl);
             }
+        }
+
+        const apkDirectUrl = document.getElementById('apkDirectUrl');
+        if (apkDirectUrl) {
+            const resolvedUrl = useDirectApk ? apkTargetUrl : directApkUrl;
+            apkDirectUrl.href = resolvedUrl;
+            apkDirectUrl.textContent = resolvedUrl;
         }
 
         const apkQrHint = document.getElementById('apkQrHint');
