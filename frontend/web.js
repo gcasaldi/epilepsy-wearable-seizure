@@ -959,7 +959,10 @@ function clearSession() {
 }
 
 async function api(path, options = {}) {
-    if (isStaticPagesApiBase() && isLocalFallbackEnabled()) {
+    const localFallbackActive = isLocalFallbackEnabled();
+    const canUsePagesFallback = isGitHubPagesRuntime() && localFallbackActive;
+
+    if (isStaticPagesApiBase() && canUsePagesFallback) {
         const localResult = await localApiFallback(path, options);
         if (localResult) {
             return localResult;
@@ -972,15 +975,32 @@ async function api(path, options = {}) {
         headers.Authorization = `Bearer ${token}`;
     }
 
-    const response = await fetch(`${API_BASE}${path}`, {
-        ...options,
-        headers,
-    });
+    let response;
+    try {
+        response = await fetch(`${API_BASE}${path}`, {
+            ...options,
+            headers,
+        });
+    } catch (networkErr) {
+        if (canUsePagesFallback) {
+            const localResult = await localApiFallback(path, options);
+            if (localResult) {
+                return localResult;
+            }
+        }
+        throw networkErr;
+    }
 
     const contentType = response.headers.get('content-type') || '';
     const payload = contentType.includes('application/json') ? await response.json() : {};
 
     if (!response.ok) {
+        if (canUsePagesFallback) {
+            const localResult = await localApiFallback(path, options);
+            if (localResult) {
+                return localResult;
+            }
+        }
         const nonJsonHint = !contentType.includes('application/json')
             ? ' Endpoint backend non raggiungibile o api_base non corretto.'
             : '';
@@ -4445,7 +4465,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
         if (!shown) {
-            alert(message);
+            const fallback = document.createElement('div');
+            fallback.className = 'card';
+            fallback.style.margin = '1rem';
+            fallback.style.padding = '1rem';
+            fallback.innerHTML = `<p style="margin:0;"><strong>${message}</strong></p><p class="muted" style="margin-top:0.5rem;">Ricarica la pagina. Se persiste su Pages, reimposta API Base dal login o usa ?local_demo=1.</p>`;
+            document.body.prepend(fallback);
         }
     });
 });
