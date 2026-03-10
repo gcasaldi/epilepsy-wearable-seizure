@@ -1603,7 +1603,16 @@ async def get_risk_history(
             points = []
             for row in rows:
                 risk_score = max(0.02, min(0.98, 0.62 - (row.hrv / 180) + (row.heart_rate - 70) / 180))
-                points.append(RiskDataPoint(timestamp=row.timestamp, risk_score=risk_score))
+                points.append(
+                    RiskDataPoint(
+                        timestamp=row.timestamp,
+                        risk_score=risk_score,
+                        heart_rate=int(row.heart_rate),
+                        hrv=round(float(row.hrv), 1),
+                        sleep_hours=round(float(row.sleep_hours), 1),
+                        movement=round(float(row.movement), 1),
+                    )
+                )
             return list(reversed(points))
     finally:
         db.close()
@@ -1614,7 +1623,14 @@ async def get_risk_history(
     # Fallback demo se non ci sono ancora dati sync.
     now = datetime.now()
     return [
-        RiskDataPoint(timestamp=now - timedelta(hours=i), risk_score=max(0, 0.5 + i * 0.1 - 0.2 * i * i + 0.01 * i * i * i))
+        RiskDataPoint(
+            timestamp=now - timedelta(hours=i),
+            risk_score=max(0, 0.5 + i * 0.1 - 0.2 * i * i + 0.01 * i * i * i),
+            heart_rate=72 + (i % 5),
+            hrv=52.0 - (i % 4),
+            sleep_hours=7.1,
+            movement=115.0 + (i * 1.5),
+        )
         for i in range(24)
     ]
 
