@@ -2056,8 +2056,8 @@ async function startBleAssistedBridge(username, onStep) {
 
     onStep?.('Apri selettore dispositivo Bluetooth...');
     const device = await navigator.bluetooth.requestDevice({
-        filters: [{ services: ['heart_rate'] }],
-        optionalServices: ['battery_service', 'device_information'],
+        acceptAllDevices: true,
+        optionalServices: ['heart_rate', 'battery_service', 'device_information'],
     });
 
     let heartRate = null;
@@ -2821,9 +2821,16 @@ async function boot() {
 
         const bridgeBtn = document.getElementById('bridgeBleAssistBtn');
         const bridgeStatus = document.getElementById('bridgeBleStatus');
+        const dashboardBleRouteStatus = document.getElementById('mobileBleRouteStatus');
+        if (dashboardBleRouteStatus) {
+            dashboardBleRouteStatus.textContent = describeMobileBleRoute();
+        }
+        const dashboardBleMeta = readJsonStorage(userScopedKey(dashboardUser, 'bridge_ble_meta'), null);
+        updateBleIndicator(dashboardBleMeta?.last_bridge_at ? 'warn' : 'off');
         if (bridgeBtn) {
             bridgeBtn.addEventListener('click', async () => {
                 bridgeBtn.disabled = true;
+                updateBleIndicator('warn');
                 if (bridgeStatus) bridgeStatus.textContent = 'Bridge BLE in corso...';
                 try {
                     const out = await startBleAssistedBridge(dashboardUser, (step) => {
@@ -2832,11 +2839,22 @@ async function boot() {
                     if (bridgeStatus) {
                         bridgeStatus.textContent = `Bridge completato con ${out.deviceName} (HR ${out.hr} bpm).`;
                     }
+                    updateBleIndicator('on');
                     setDataQualityBadge(dashboardUser);
                 } catch (err) {
-                    if (bridgeStatus) {
-                        bridgeStatus.textContent = `Bridge non riuscito: ${err.message}`;
+                    const raw = String(err?.message || 'Errore sconosciuto');
+                    let hint = raw;
+                    if (raw.includes('User cancelled the requestDevice') || raw.includes('NotFoundError')) {
+                        hint = 'Nessun dispositivo selezionato. Riapri il bridge e scegli smartwatch o fascia cardiaca dalla lista Bluetooth.';
+                    } else if (raw.includes('Bluetooth') && raw.includes('denied')) {
+                        hint = 'Permesso Bluetooth negato. Abilita Bluetooth nel browser e riprova.';
+                    } else if (raw.includes('HTTPS') || raw.includes('contesto sicuro')) {
+                        hint = 'Per usare Bluetooth servono HTTPS o localhost. Su Pages usa Companion App se il browser non supporta BLE.';
                     }
+                    if (bridgeStatus) {
+                        bridgeStatus.textContent = `Bridge non riuscito: ${hint}`;
+                    }
+                    updateBleIndicator('off');
                 } finally {
                     bridgeBtn.disabled = false;
                 }
