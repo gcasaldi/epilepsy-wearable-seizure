@@ -2189,7 +2189,14 @@ function runDashboardOnboarding({ username, report, bridgeStatus }) {
 }
 
 async function smartConnectNow({ username, report, bridgeBtn, bridgeStatus }) {
-    if (report.canTryDirectBle && bridgeBtn) {
+    const canAttemptDirect = Boolean(window.isSecureContext && navigator.bluetooth && bridgeBtn);
+    if (canAttemptDirect) {
+        if (bleLiveImportState.running) {
+            if (bridgeStatus) {
+                bridgeStatus.textContent = 'Monitor BLE gia attivo: invio dati ogni 15 minuti in corso.';
+            }
+            return;
+        }
         bridgeBtn.click();
         return;
     }
