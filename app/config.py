@@ -21,13 +21,14 @@ class Settings(BaseSettings):
     # Admin credentials (hashed password)
     admin_username: str = "admin"
     admin_password_hash: str = "" 
+    enable_legacy_admin_login: bool = False
 
     # --- CREDENZIALI TEST REALE GIULIA (NON CANCELLARE) ---
     giulia_email: str = "giulia.casaldi@gmail.com"
     giulia_password: str = "GiuliaEpi2026!"
 
     # Demo accounts (solo sviluppo)
-    enable_demo_accounts: bool = True
+    enable_demo_accounts: bool = False
     demo_user_username: str = "demo.user@epilepsy.local"
     demo_user_password: str = "DemoUser2026!"
     demo_provider_username: str = "demo.ente@epilepsy.local"
@@ -41,6 +42,9 @@ class Settings(BaseSettings):
     fitbit_client_secret: str = ""
     fitbit_redirect_uri: str = ""
     fitbit_scopes: str = "activity heartrate sleep profile"
+
+    # Wearable strategy
+    wearable_mvp_health_connect_only: bool = True
     
     # Network Security
     cors_origins: list[str] = ["*"]

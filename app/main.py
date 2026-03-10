@@ -85,6 +85,10 @@ from webauthn.helpers.structs import (
     AuthenticationCredential,
     UserVerificationRequirement,
 )
+from app.api.wearable import router as wearable_router
+from app.api.journal import router as journal_router
+from app.api.risk import router as risk_router
+from app.api.dashboard import router as dashboard_router
 
 # Logging
 logging.basicConfig(
@@ -101,6 +105,11 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc"
 )
+
+app.include_router(wearable_router)
+app.include_router(journal_router)
+app.include_router(risk_router)
+app.include_router(dashboard_router)
 
 
 class AuthRateLimiter:

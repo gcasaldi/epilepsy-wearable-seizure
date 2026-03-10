@@ -1,24 +1,68 @@
 # Epilepsy Wearable Seizure Prediction
 
-🧠 **Sistema di predizione crisi epilettiche in tempo reale** con accesso Google privato, dashboard web e monitoraggio Wear OS.
+🧠 **Piattaforma di monitoraggio e stima del rischio epilettico personalizzato** con mobile companion per raccolta sensori e web dashboard per analisi, storico e consensi.
 
-## 🎯 Funzionalità
+## 🎯 Direzione Prodotto (target)
 
-- ✅ **Accesso privato con Google Sign-In** + JWT applicativo
-- ✅ **API protetta** - tutti gli endpoint richiedono login
-- ✅ **Dashboard web** con visualizzazione rischio in tempo reale
-- ✅ **Algoritmo predittivo** basato su parametri fisiologici
-- ✅ **Telemetria estesa da wearable** (HR, HRV, SpO₂, respirazione, temperatura, passi, stress)
-- ✅ **Wearable Hub multi-provider** (Fitbit, Garmin, Oura, Polar, Withings, Strava, Health Connect, Apple Health)
-- ✅ **Codifica a colori** (verde/giallo/rosso) per rischio
-- ✅ **Invio automatico** opzionale ogni 5 secondi
-- ✅ **Password hashate** con bcrypt (mai salvate in chiaro)
+- ✅ **Un solo sistema, tre superfici**: Web Control Center + Mobile Companion + API Core
+- ✅ **Backend come fonte unica di verità**: niente scambio diretto web↔mobile
+- ✅ **Mobile Companion operativa**: login, Health Connect, sync dati, diario rapido, alert
+- ✅ **Web Control Center analitico**: dashboard, trend, storico, consensi, report
+- ✅ **Risk Engine personale**: baseline, anomaly detection, risk score, spiegazioni
+
+## ✅ Stato Attuale (implementato)
+
+- ✅ Accesso con Google Sign-In + JWT applicativo
+- ✅ API protetta (endpoint autenticati)
+- ✅ Dashboard web con rischio a colori
+- ✅ Base sicurezza account/consensi/audit
+- ✅ Infrastruttura wearable gia predisposta (da rifocalizzare per priorita MVP)
+
+## 🎯 Priorita MVP (immediata)
+
+- 1 provider principale: **Android + Health Connect**
+- pipeline rischio centrata su **serie temporali** e non su input manuale isolato
+- separazione netta dei ruoli tra Web, Mobile e Backend
 
 ## 🧭 Architettura ruoli/consensi
 
 - Specifica tecnica pronta sviluppo: [docs/architecture-rbac-consent.md](docs/architecture-rbac-consent.md)
 - Sicurezza account/recovery/audit: [docs/security-account-lifecycle.md](docs/security-account-lifecycle.md)
 - Enterprise hardening (multi-istanza): [docs/enterprise-hardening-mini-spec.md](docs/enterprise-hardening-mini-spec.md)
+
+## 🧱 Architettura target (single system)
+
+Documentazione operativa aggiornata:
+
+- Architettura core: [docs/epiguard-core-architecture.md](docs/epiguard-core-architecture.md)
+- Specifica mobile companion: [docs/epiguard-mobile-companion-spec.md](docs/epiguard-mobile-companion-spec.md)
+- Contratto API unificato: [docs/epiguard-api-contract.md](docs/epiguard-api-contract.md)
+- Schema storage MVP: [docs/epiguard-storage-schema.sql](docs/epiguard-storage-schema.sql)
+- Roadmap implementativa: [docs/epiguard-implementation-roadmap.md](docs/epiguard-implementation-roadmap.md)
+
+Separazione responsabilita (obbligatoria):
+
+- **Epiguard Web**: dashboard, trend, storico, consensi, report
+- **Epiguard Mobile Companion**: login, Health Connect, sync, diario, notifiche
+- **Epiguard API**: auth, ingest, feature extraction, risk scoring, storage, audit
+- **Epiguard Risk Engine**: baseline personale, anomalie, previsione, spiegazione
+
+Flusso tecnico corretto:
+
+```text
+[ Wearable / Health Connect ]
+    ↓
+[ Mobile Companion App ]
+    ↓
+  [ Epiguard API ]
+    ↓
+ ┌──────────┴──────────┐
+ ↓                     ↓
+[ PostgreSQL ]   [ Risk Engine AI ]
+ └──────────┬──────────┘
+    ↓
+   [ Web Dashboard ] + [ Mobile App ]
+```
 
 ## 📋 Prerequisiti
 
@@ -125,6 +169,8 @@ Verifica differenza profili con endpoint protetto `GET /api/me`:
 
 ### API Endpoints
 
+Nota: il progetto sta convergendo verso endpoint minimi e chiari (vedi [docs/epiguard-api-contract.md](docs/epiguard-api-contract.md)). Gli endpoint legacy restano disponibili in fase di transizione.
+
 #### 🔓 Pubblici (no auth)
 
 **GET `/auth/google-config`** - Config pubblica per Google Sign-In frontend
@@ -139,7 +185,7 @@ curl -X POST http://localhost:8000/auth/google \
 
 **POST `/auth/login`** - Ottieni JWT token
 
-> Endpoint legacy mantenuto per test/sviluppo.
+> Endpoint legacy mantenuto per test/sviluppo. Flusso target: identita reale utente con provider auth primario coerente tra web e mobile.
 
 ```bash
 curl -X POST http://localhost:8000/auth/login \
@@ -165,7 +211,19 @@ curl http://localhost:8000/health
 
 #### 🔒 Protetti (richiedono token)
 
-**GET `/api/wearable/providers`** - Stato provider wearable/fintess per utente
+Set minimo target (in consolidamento):
+
+- `POST /wearable/sync`
+- `GET /wearable/status`
+- `POST /journal/event`
+- `GET /journal/history`
+- `GET /risk/current`
+- `GET /risk/timeline`
+- `GET /dashboard/summary`
+
+Endpoint oggi disponibili nel codice (storici/compatibilita):
+
+**GET `/api/wearable/providers`** - Stato provider wearable/fitness per utente
 
 ```bash
 curl http://localhost:8000/api/wearable/providers \
@@ -429,18 +487,14 @@ Assicurati di aver:
 - Verifica che il backend sia su http://localhost:8000
 - In produzione, aggiorna `cors_origins` in `app/config.py`
 
-## 📝 TODO Futuri
+## 📝 TODO Prioritari (riallineamento)
 
-- [ ] Database per storico predizioni
-- [ ] Multi-utente con registrazione
-- [ ] Grafici storici rischio
-- [ ] Notifiche push per rischio alto
-- [ ] Integrazione API smartwatch reali
-- [ ] App mobile (React Native / Flutter)
-- [ ] Machine Learning con dati reali
-- [ ] Rate limiting per API
-- [ ] Docker container
-- [ ] CI/CD pipeline
+- [ ] Ridurre il focus provider a Health Connect come priorita MVP
+- [ ] Separare chiaramente moduli backend (api/services/db/models)
+- [ ] Consolidare auth e declassare flussi demo/legacy fuori dal percorso principale
+- [ ] Spostare il cuore del rischio su pipeline time-series (baseline + anomalie)
+- [ ] Allineare web (analitica) e mobile (operativa) allo stesso contratto API
+- [ ] Migrare endpoint legacy verso naming unico e consistente
 
 ## 📄 Licenza
 
