@@ -33,7 +33,7 @@ from app.models import (
     LoginRequest, RegisterRequest,
     PasswordRecoveryRequest, PasswordRecoveryConfirmRequest, PasswordRecoveryResponse,
     PasskeyBeginRequest, PasskeyCompleteRequest, PasskeyOptionsResponse, PasskeyStatusResponse,
-    ManualBiometricRequest,
+    ManualBiometricRequest, WatchPhysiologicalData,
 )
 from app.auth import (
     create_access_token,
@@ -1514,6 +1514,43 @@ async def predict_seizure_risk(
         raise HTTPException(
             status_code=500,
             detail="Errore durante il calcolo della predizione"
+        )
+
+
+@app.post(
+    "/api/predict-watch",
+    response_model=RiskPrediction,
+    tags=["Prediction"],
+    summary="Predice rischio da metriche reali smartwatch (PROTETTO)",
+)
+async def predict_watch_risk(
+    data: WatchPhysiologicalData,
+    current_user: str = Depends(get_current_user),
+):
+    """Predizione rischio usando solo metriche realmente inviate dal device."""
+    try:
+        logger.info(
+            "[%s] Predict watch-only - HR=%s RR=%s HRV=%s",
+            current_user,
+            data.heart_rate,
+            data.rr_interval_ms,
+            data.hrv,
+        )
+
+        effective_hrv = data.hrv
+        if effective_hrv is None and data.rr_interval_ms is not None:
+            effective_hrv = float(data.rr_interval_ms)
+
+        return predictor.predict_watch(
+            heart_rate=int(data.heart_rate),
+            hrv=float(effective_hrv) if effective_hrv is not None else None,
+            timestamp=data.timestamp,
+        )
+    except Exception as e:
+        logger.error(f"Errore predizione watch-only: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Errore durante il calcolo della predizione da smartwatch",
         )
 
 

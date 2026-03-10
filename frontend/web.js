@@ -611,38 +611,34 @@ async function localApiFallback(path, options = {}) {
                 .slice(-240)
                 .reverse()
                 .map((s) => {
-                const risk = computeDemoRisk({
-                    hrv: s.hrv,
-                    heart_rate: s.heart_rate,
-                    movement: s.movement,
-                    sleep_hours: s.sleep_hours,
-                    medication_taken: true,
-                });
+                const hasFullSet = Number.isFinite(Number(s.hrv))
+                    && Number.isFinite(Number(s.heart_rate))
+                    && Number.isFinite(Number(s.movement))
+                    && Number.isFinite(Number(s.sleep_hours));
+                const risk = hasFullSet
+                    ? computeDemoRisk({
+                        hrv: s.hrv,
+                        heart_rate: s.heart_rate,
+                        movement: s.movement,
+                        sleep_hours: s.sleep_hours,
+                        medication_taken: true,
+                    })
+                    : computeWatchOnlyRisk({
+                        heart_rate: s.heart_rate,
+                        hrv: s.hrv,
+                    });
                 return {
                     timestamp: s.timestamp,
                     risk_score: risk.risk_score,
                     heart_rate: Number(s.heart_rate),
                     hrv: Number(s.hrv),
-                    sleep_hours: Number(s.sleep_hours),
-                    movement: Number(s.movement),
+                    sleep_hours: Number.isFinite(Number(s.sleep_hours)) ? Number(s.sleep_hours) : null,
+                    movement: Number.isFinite(Number(s.movement)) ? Number(s.movement) : null,
                 };
             });
         }
 
-        const now = Date.now();
-        const rows = [];
-        for (let i = 0; i < 24; i += 1) {
-            const raw = 0.45 + 0.22 * Math.sin(i / 4.2) + 0.12 * Math.cos(i / 3.1);
-            rows.push({
-                timestamp: new Date(now - i * 3600 * 1000).toISOString(),
-                risk_score: Math.max(0.05, Math.min(0.95, raw)),
-                heart_rate: 70 + Math.round(4 * Math.sin(i / 2.1)),
-                hrv: 50 + Math.round(5 * Math.cos(i / 2.8)),
-                sleep_hours: 7.0,
-                movement: 110 + Math.round(15 * Math.cos(i / 3.5)),
-            });
-        }
-        return rows.filter((row) => inRange(row.timestamp));
+        return [];
     }
 
     if (path === '/api/physiological-summary' && method === 'GET') {
@@ -877,16 +873,52 @@ async function localApiFallback(path, options = {}) {
         if (profile) {
             const key = userBiometricSamplesKey(profile.email);
             const samples = readJsonStorage(key, []);
+            const hr = Number(payload.heart_rate);
+            const hrv = Number(payload.hrv);
+            const sleepHours = Number(payload.sleep_hours);
+            const movement = Number(payload.movement);
+            if (!Number.isFinite(hr) || !Number.isFinite(hrv) || !Number.isFinite(sleepHours) || !Number.isFinite(movement)) {
+                throw new Error('Dati incompleti: /api/predict richiede metriche complete (nessun valore stimato).');
+            }
             samples.push({
                 timestamp: new Date().toISOString(),
-                heart_rate: Number(payload.heart_rate || 72),
-                hrv: Number(payload.hrv || estimateHrvFromHeartRate(Number(payload.heart_rate || 72))),
-                sleep_hours: Number(payload.sleep_hours || 7),
-                movement: Number(payload.movement || 110),
+                heart_rate: hr,
+                hrv,
+                sleep_hours: sleepHours,
+                movement,
             });
             writeJsonStorage(key, samples.slice(-1000));
         }
         const result = computeDemoRisk(payload);
+        return {
+            ...result,
+            timestamp: new Date().toISOString(),
+        };
+    }
+
+    if (path === '/api/predict-watch' && method === 'POST') {
+        const hr = Number(payload.heart_rate);
+        const rr = Number(payload.rr_interval_ms);
+        const hrv = Number(payload.hrv);
+        if (!Number.isFinite(hr)) {
+            throw new Error('Dati smartwatch non validi: heart_rate mancante.');
+        }
+
+        const effectiveHrv = Number.isFinite(hrv) ? hrv : (Number.isFinite(rr) ? rr : null);
+        const result = computeWatchOnlyRisk({ heart_rate: hr, hrv: effectiveHrv });
+
+        const profile = getLocalProfileFromToken();
+        if (profile && Number.isFinite(effectiveHrv)) {
+            const key = userBiometricSamplesKey(profile.email);
+            const samples = readJsonStorage(key, []);
+            samples.push({
+                timestamp: new Date().toISOString(),
+                heart_rate: hr,
+                hrv: Number(effectiveHrv),
+            });
+            writeJsonStorage(key, samples.slice(-1000));
+        }
+
         return {
             ...result,
             timestamp: new Date().toISOString(),
@@ -1442,6 +1474,41 @@ function computeDemoRisk(payload) {
     } else if (score >= 0.34) {
         level = 'medium';
         message = 'Rischio moderato: controlla sonno, stress e aderenza terapeutica.';
+    }
+
+    return {
+        risk_score: Math.max(0, Math.min(1, score)),
+        risk_level: level,
+        message,
+    };
+}
+
+function computeWatchOnlyRisk(payload) {
+    const heartRate = Number(payload.heart_rate);
+    const hrv = Number(payload.hrv);
+
+    if (!Number.isFinite(heartRate)) {
+        throw new Error('heart_rate non valido.');
+    }
+
+    const hrRisk = Math.max(0, Math.min(1, Math.abs(heartRate - 72) / 50));
+    let score = hrRisk;
+    let detail = 'Analisi basata su battito cardiaco reale.';
+
+    if (Number.isFinite(hrv)) {
+        const hrvRisk = Math.max(0, Math.min(1, (60 - hrv) / 60));
+        score = (0.55 * hrRisk) + (0.45 * hrvRisk);
+        detail = 'Analisi basata su battito cardiaco e RR/HRV reali dal device.';
+    }
+
+    let level = 'low';
+    let message = `${detail} Rischio basso: andamento attuale stabile.`;
+    if (score >= 0.67) {
+        level = 'high';
+        message = `${detail} Rischio elevato: valuta monitoraggio ravvicinato e piano sicurezza.`;
+    } else if (score >= 0.34) {
+        level = 'medium';
+        message = `${detail} Rischio moderato: continua il monitoraggio.`;
     }
 
     return {
@@ -2357,11 +2424,6 @@ const bleLiveImportState = {
 
 const BLE_CAPTURE_INTERVAL_MS = 15 * 60 * 1000;
 
-function estimateHrvFromHeartRate(hr) {
-    const boundedHr = Math.max(45, Math.min(180, Number(hr) || 72));
-    return Math.max(20, Math.min(95, Math.round(62 - ((boundedHr - 60) * 0.45))));
-}
-
 function waitMs(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -2568,24 +2630,20 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
         onTelemetry?.({
             heart_rate: hr,
             rr_interval_ms: rrAvg,
-            hrv_estimate: Number.isFinite(hrvFromRr) ? hrvFromRr : estimateHrvFromHeartRate(hr),
+            hrv_real: Number.isFinite(hrvFromRr) ? hrvFromRr : null,
             sample_count: sampleCount,
             timestamp: new Date().toISOString(),
             device_name: device.name || 'BLE device',
         });
 
-        const sleepInput = Number(document.getElementById('manualSleepHours')?.value || 7);
-        const movementInput = Number(document.getElementById('manualMovement')?.value || 110);
         const payload = {
             heart_rate: hr,
-            hrv: Number.isFinite(hrvFromRr) ? hrvFromRr : estimateHrvFromHeartRate(hr),
-            sleep_hours: Number.isFinite(sleepInput) ? sleepInput : 7,
-            movement: Number.isFinite(movementInput) ? movementInput : 110,
-            medication_taken: true,
+            rr_interval_ms: Number.isFinite(rrAvg) ? rrAvg : null,
+            hrv: Number.isFinite(hrvFromRr) ? hrvFromRr : null,
         };
 
         try {
-            const prediction = await api('/api/predict', {
+            const prediction = await api('/api/predict-watch', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),
