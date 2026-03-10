@@ -186,6 +186,10 @@ class RiskDataPoint(BaseModel):
     """Punto dati per grafico andamento rischio"""
     timestamp: datetime
     risk_score: float
+    heart_rate: Optional[int] = None
+    hrv: Optional[float] = None
+    sleep_hours: Optional[float] = None
+    movement: Optional[float] = None
 
 
 # --- Integrazioni Wearable/Fitness ---

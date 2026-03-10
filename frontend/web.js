@@ -588,11 +588,29 @@ async function localApiFallback(path, options = {}) {
         };
     }
 
-    if (path === '/api/risk-history' && method === 'GET') {
+    if (path.startsWith('/api/risk-history') && method === 'GET') {
         const profile = getLocalProfileFromToken();
         const samples = profile ? readJsonStorage(userBiometricSamplesKey(profile.email), []) : [];
+        const pathUrl = new URL(path, 'https://local.epiguard');
+        const startIso = pathUrl.searchParams.get('start');
+        const endIso = pathUrl.searchParams.get('end');
+        const startMs = startIso ? new Date(startIso).getTime() : null;
+        const endMs = endIso ? new Date(endIso).getTime() : null;
+
+        const inRange = (ts) => {
+            const ms = new Date(ts).getTime();
+            if (Number.isNaN(ms)) return false;
+            if (startMs !== null && ms < startMs) return false;
+            if (endMs !== null && ms > endMs) return false;
+            return true;
+        };
+
         if (samples.length) {
-            return samples.slice(-24).reverse().map((s) => {
+            return samples
+                .filter((s) => inRange(s.timestamp))
+                .slice(-240)
+                .reverse()
+                .map((s) => {
                 const risk = computeDemoRisk({
                     hrv: s.hrv,
                     heart_rate: s.heart_rate,
@@ -603,6 +621,10 @@ async function localApiFallback(path, options = {}) {
                 return {
                     timestamp: s.timestamp,
                     risk_score: risk.risk_score,
+                    heart_rate: Number(s.heart_rate),
+                    hrv: Number(s.hrv),
+                    sleep_hours: Number(s.sleep_hours),
+                    movement: Number(s.movement),
                 };
             });
         }
@@ -614,9 +636,13 @@ async function localApiFallback(path, options = {}) {
             rows.push({
                 timestamp: new Date(now - i * 3600 * 1000).toISOString(),
                 risk_score: Math.max(0.05, Math.min(0.95, raw)),
+                heart_rate: 70 + Math.round(4 * Math.sin(i / 2.1)),
+                hrv: 50 + Math.round(5 * Math.cos(i / 2.8)),
+                sleep_hours: 7.0,
+                movement: 110 + Math.round(15 * Math.cos(i / 3.5)),
             });
         }
-        return rows;
+        return rows.filter((row) => inRange(row.timestamp));
     }
 
     if (path === '/api/physiological-summary' && method === 'GET') {
@@ -1480,6 +1506,10 @@ function renderRiskHistory(items) {
     list.innerHTML = items.slice(0, 12).map((item) => {
         const pct = Math.round(item.risk_score * 100);
         const level = riskLabel(item.risk_score).toLowerCase();
+        const hr = Number.isFinite(Number(item.heart_rate)) ? `${Math.round(Number(item.heart_rate))} bpm` : 'N/D';
+        const hrv = Number.isFinite(Number(item.hrv)) ? `${Number(item.hrv).toFixed(1)} ms` : 'N/D';
+        const sleep = Number.isFinite(Number(item.sleep_hours)) ? `${Number(item.sleep_hours).toFixed(1)} h` : 'N/D';
+        const movement = Number.isFinite(Number(item.movement)) ? `${Math.round(Number(item.movement))}` : 'N/D';
         return `
             <div class="card" style="padding: 0.6rem; margin-bottom: 0.5rem;">
                 <div style="display:flex; justify-content:space-between; gap:0.6rem;">
@@ -1489,6 +1519,7 @@ function renderRiskHistory(items) {
                 <div style="height:8px; background:rgba(255,255,255,0.08); margin-top:0.35rem;">
                     <div style="height:8px; width:${pct}%; background:linear-gradient(90deg,#00ff88,#ffcc00,#ff3131);"></div>
                 </div>
+                <p class="muted" style="margin-top:0.35rem;">HR ${hr} · HRV ${hrv} · Sonno ${sleep} · Movimento ${movement}</p>
             </div>
         `;
     }).join('');
@@ -1526,15 +1557,79 @@ function renderV2RiskHistory(items) {
     list.innerHTML = items.map((item) => {
         const pct = Math.round(Number(item.risk_score || 0) * 100);
         const level = riskLabel(Number(item.risk_score || 0)).toLowerCase();
+        const hr = Number.isFinite(Number(item.heart_rate)) ? `${Math.round(Number(item.heart_rate))} bpm` : 'N/D';
+        const hrv = Number.isFinite(Number(item.hrv)) ? `${Number(item.hrv).toFixed(1)} ms` : 'N/D';
+        const sleep = Number.isFinite(Number(item.sleep_hours)) ? `${Number(item.sleep_hours).toFixed(1)} h` : 'N/D';
+        const movement = Number.isFinite(Number(item.movement)) ? `${Math.round(Number(item.movement))}` : 'N/D';
         return `
             <div class="card" style="padding:0.55rem; margin-bottom:0.45rem;">
                 <div style="display:flex; justify-content:space-between; gap:0.6rem; align-items:center;">
                     <span class="muted">${new Date(item.timestamp).toLocaleString()}</span>
                     <strong class="risk-${level}">${pct}%</strong>
                 </div>
+                <p class="muted" style="margin-top:0.3rem;">HR ${hr} · HRV ${hrv} · Sonno ${sleep} · Movimento ${movement}</p>
             </div>
         `;
     }).join('');
+}
+
+function renderV2AiReport({ rows, startIso, endIso }) {
+    const box = document.getElementById('v2AiReport');
+    if (!box) return;
+    if (!rows?.length) {
+        box.innerHTML = '<p class="muted">Nessun dato nell\'intervallo selezionato: impossibile generare report AI.</p>';
+        return;
+    }
+
+    const riskValues = rows.map((r) => Number(r.risk_score || 0)).filter((v) => Number.isFinite(v));
+    const hrValues = rows.map((r) => Number(r.heart_rate)).filter((v) => Number.isFinite(v));
+    const hrvValues = rows.map((r) => Number(r.hrv)).filter((v) => Number.isFinite(v));
+    const sleepValues = rows.map((r) => Number(r.sleep_hours)).filter((v) => Number.isFinite(v));
+
+    const avg = (arr) => arr.length ? (arr.reduce((a, b) => a + b, 0) / arr.length) : null;
+    const max = (arr) => arr.length ? Math.max(...arr) : null;
+    const min = (arr) => arr.length ? Math.min(...arr) : null;
+
+    const avgRisk = avg(riskValues) ?? 0;
+    const maxRisk = max(riskValues) ?? 0;
+    const avgHr = avg(hrValues);
+    const avgHrv = avg(hrvValues);
+    const avgSleep = avg(sleepValues);
+
+    const trend = rows.length >= 2
+        ? Number(rows[rows.length - 1].risk_score || 0) - Number(rows[0].risk_score || 0)
+        : 0;
+    const trendLabel = trend > 0.05 ? 'in peggioramento' : (trend < -0.05 ? 'in miglioramento' : 'stabile');
+
+    const advice = [];
+    if (maxRisk >= 0.67) {
+        advice.push('Rischio alto rilevato nel periodo: attiva monitoraggio ravvicinato e conferma aderenza terapia.');
+    }
+    if (avgSleep !== null && avgSleep < 6.5) {
+        advice.push('Sonno medio basso: prova routine sonno costante e riduci trigger serali.');
+    }
+    if (avgHrv !== null && avgHrv < 40) {
+        advice.push('HRV medio ridotto: inserisci pause di recupero e riduci carico stressogeno.');
+    }
+    if (avgHr !== null && avgHr > 95) {
+        advice.push('Frequenza cardiaca media elevata: verifica trigger fisici/emotivi e idratazione.');
+    }
+    if (!advice.length) {
+        advice.push('Indicatori complessivamente stabili: continua monitoraggio e terapia con regolarita.');
+    }
+
+    const fromLabel = startIso ? new Date(startIso).toLocaleString() : 'inizio';
+    const toLabel = endIso ? new Date(endIso).toLocaleString() : 'adesso';
+
+    box.innerHTML = `
+        <div class="card" style="padding:0.8rem;">
+            <p><strong>Intervallo:</strong> ${fromLabel} -> ${toLabel}</p>
+            <p><strong>Campioni analizzati:</strong> ${rows.length}</p>
+            <p><strong>Rischio medio:</strong> ${(avgRisk * 100).toFixed(1)}% · <strong>Picco:</strong> ${(maxRisk * 100).toFixed(1)}% · <strong>Trend:</strong> ${trendLabel}</p>
+            <p><strong>HR medio:</strong> ${avgHr !== null ? `${avgHr.toFixed(1)} bpm` : 'N/D'} · <strong>HRV medio:</strong> ${avgHrv !== null ? `${avgHrv.toFixed(1)} ms` : 'N/D'} · <strong>Sonno medio:</strong> ${avgSleep !== null ? `${avgSleep.toFixed(1)} h` : 'N/D'}</p>
+        </div>
+        ${advice.map((item) => `<div class="card" style="padding:0.65rem; margin-top:0.45rem;"><p style="margin:0;">${item}</p></div>`).join('')}
+    `;
 }
 
 function readDashboardList(username, key) {
@@ -3700,6 +3795,7 @@ async function boot() {
 
             renderV2RiskHistory(lastHistoryRows);
             drawRiskChartV2(lastHistoryRows);
+            renderV2AiReport({ rows: lastHistoryRows, startIso, endIso });
 
             const last = lastHistoryRows.length ? lastHistoryRows[lastHistoryRows.length - 1] : null;
             lastRiskScore = Number(last?.risk_score || 0);
