@@ -2338,6 +2338,9 @@ const bleLiveImportState = {
     timerId: null,
     sampleCount: 0,
     latestSample: null,
+    recentSamples: [],
+    lastAcceptedHr: null,
+    lastAcceptedTsMs: null,
     device: null,
     server: null,
     characteristic: null,
@@ -2349,6 +2352,18 @@ const BLE_CAPTURE_INTERVAL_MS = 15 * 60 * 1000;
 function estimateHrvFromHeartRate(hr) {
     const boundedHr = Math.max(45, Math.min(180, Number(hr) || 72));
     return Math.max(20, Math.min(95, Math.round(62 - ((boundedHr - 60) * 0.45))));
+}
+
+function waitMs(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function median(values) {
+    if (!values?.length) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    if (sorted.length % 2) return sorted[mid];
+    return (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
 function buildWearableAlertMessage({ hr, hrv }) {
@@ -2389,11 +2404,18 @@ async function trySendBleAlertToWearable(server, message, onStep) {
     return false;
 }
 
-async function readOneBleSample(characteristic, latestSample) {
-    if (latestSample && (Date.now() - latestSample.tsMs) < (BLE_CAPTURE_INTERVAL_MS + 2 * 60 * 1000)) {
+async function readOneBleSample(characteristic, liveState, onStep) {
+    const captureStartedAt = Date.now();
+
+    // Attendi qualche secondo per raccogliere notifiche fresche dal wearable.
+    await waitMs(6000);
+    const freshWindow = liveState.recentSamples.filter((s) => s.tsMs >= (captureStartedAt - 1500));
+    if (freshWindow.length >= 2) {
+        const hrs = freshWindow.map((s) => Number(s.hr)).filter((v) => Number.isFinite(v));
+        const rrs = freshWindow.map((s) => Number(s.rrMs)).filter((v) => Number.isFinite(v));
         return {
-            heartRate: latestSample.hr,
-            rrIntervalsMs: Number.isFinite(latestSample.rrMs) ? [latestSample.rrMs] : [],
+            heartRate: median(hrs),
+            rrIntervalsMs: Number.isFinite(median(rrs)) ? [Math.round(median(rrs))] : [],
         };
     }
 
@@ -2401,6 +2423,14 @@ async function readOneBleSample(characteristic, latestSample) {
         const value = await characteristic.readValue();
         return parseHeartRateMeasurementDetails(value);
     } catch {
+        const latestSample = liveState.latestSample;
+        if (latestSample && (Date.now() - latestSample.tsMs) <= 2 * 60 * 1000) {
+            onStep?.('Uso ultimo campione recente disponibile dal dispositivo.');
+            return {
+                heartRate: latestSample.hr,
+                rrIntervalsMs: Number.isFinite(latestSample.rrMs) ? [latestSample.rrMs] : [],
+            };
+        }
         return { heartRate: null, rrIntervalsMs: [] };
     }
 }
@@ -2409,14 +2439,16 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
     if (bleLiveImportState.running) {
         throw new Error('Import BLE gia attivo');
     }
-    if (isStaticPagesApiBase() && isLocalFallbackEnabled()) {
-        throw new Error('Per import BLE reale serve backend API online. Imposta api_base reale (es. https://tuo-backend) e disattiva demo locale.');
-    }
+    const localFallbackMode = isStaticPagesApiBase() && isLocalFallbackEnabled();
     if (!window.isSecureContext) {
         throw new Error('Bluetooth richiede HTTPS o localhost');
     }
     if (!navigator.bluetooth) {
         throw new Error('Web Bluetooth non supportato su questo browser/dispositivo');
+    }
+
+    if (localFallbackMode) {
+        onStep?.('Modalita locale attiva: il monitor BLE funziona e salva in web app locale. Per sync server imposta api_base reale.');
     }
 
     onStep?.('Seleziona il dispositivo Bluetooth da importare...');
@@ -2437,6 +2469,9 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
     bleLiveImportState.running = true;
     bleLiveImportState.sampleCount = 0;
     bleLiveImportState.latestSample = null;
+    bleLiveImportState.recentSamples = [];
+    bleLiveImportState.lastAcceptedHr = null;
+    bleLiveImportState.lastAcceptedTsMs = null;
     bleLiveImportState.device = device;
     bleLiveImportState.server = server;
     bleLiveImportState.characteristic = characteristic;
@@ -2456,6 +2491,10 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
             rrMs: Number.isFinite(rrAvg) ? rrAvg : null,
             tsMs: Date.now(),
         };
+        bleLiveImportState.recentSamples.push(bleLiveImportState.latestSample);
+        if (bleLiveImportState.recentSamples.length > 60) {
+            bleLiveImportState.recentSamples = bleLiveImportState.recentSamples.slice(-60);
+        }
     };
 
     bleLiveImportState.listener = liveListener;
@@ -2466,7 +2505,7 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
         if (!bleLiveImportState.running) return;
         onStep?.('Rilevazione BLE in corso...');
 
-        const details = await readOneBleSample(characteristic, bleLiveImportState.latestSample);
+        const details = await readOneBleSample(characteristic, bleLiveImportState, onStep);
         const hr = Number(details.heartRate);
         if (!Number.isFinite(hr)) {
             onStep?.('Rilevazione non riuscita: nessun battito letto dal device.');
@@ -2476,6 +2515,20 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
         const rrAvg = details.rrIntervalsMs?.length
             ? Math.round(details.rrIntervalsMs.reduce((a, b) => a + b, 0) / details.rrIntervalsMs.length)
             : null;
+
+        // Filtro anti-valore spurio: se c'e salto enorme e manca RR di supporto, non inviare ad AI.
+        const previousHr = Number(bleLiveImportState.lastAcceptedHr);
+        if (
+            Number.isFinite(previousHr) &&
+            Math.abs(hr - previousHr) > 45 &&
+            !Number.isFinite(rrAvg)
+        ) {
+            onStep?.(`Campione BLE sospetto (${Math.round(hr)} bpm) rispetto al precedente (${Math.round(previousHr)} bpm): attendo conferma al prossimo ciclo.`);
+            return;
+        }
+
+        bleLiveImportState.lastAcceptedHr = hr;
+        bleLiveImportState.lastAcceptedTsMs = Date.now();
         const hrvFromRr = Number.isFinite(rrAvg) ? rrAvg : null;
 
         bleLiveImportState.sampleCount += 1;
@@ -2592,6 +2645,9 @@ async function stopBleLiveImportSession() {
     bleLiveImportState.timerId = null;
     bleLiveImportState.sampleCount = 0;
     bleLiveImportState.latestSample = null;
+    bleLiveImportState.recentSamples = [];
+    bleLiveImportState.lastAcceptedHr = null;
+    bleLiveImportState.lastAcceptedTsMs = null;
     bleLiveImportState.device = null;
     bleLiveImportState.server = null;
     bleLiveImportState.characteristic = null;
