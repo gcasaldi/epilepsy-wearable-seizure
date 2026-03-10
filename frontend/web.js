@@ -1974,29 +1974,98 @@ function renderDiaryEntries(username, riskScore) {
     `).join('');
 }
 
-async function startBleAssistedBridge(username) {
+function parseHeartRateMeasurement(dataView) {
+    const flags = dataView.getUint8(0);
+    const is16Bit = (flags & 0x01) === 0x01;
+    if (is16Bit) {
+        return dataView.getUint16(1, true);
+    }
+    return dataView.getUint8(1);
+}
+
+async function readHeartRateFromGatt(device, onStep) {
+    const server = await device.gatt?.connect();
+    if (!server) {
+        throw new Error('Connessione GATT non disponibile');
+    }
+
+    try {
+        onStep?.('Connessione GATT attiva, lettura frequenza cardiaca...');
+        const service = await server.getPrimaryService('heart_rate');
+        const characteristic = await service.getCharacteristic('heart_rate_measurement');
+
+        // Primo tentativo: ascolto notifica per 8 secondi.
+        let resolved = false;
+        const hrFromNotification = await new Promise((resolve) => {
+            const timeout = setTimeout(async () => {
+                if (!resolved) {
+                    resolved = true;
+                    try {
+                        await characteristic.stopNotifications();
+                    } catch {}
+                    resolve(null);
+                }
+            }, 8000);
+
+            const onChanged = async (event) => {
+                if (resolved) return;
+                resolved = true;
+                clearTimeout(timeout);
+                const value = event.target?.value;
+                const hr = value ? parseHeartRateMeasurement(value) : null;
+                try {
+                    await characteristic.stopNotifications();
+                } catch {}
+                characteristic.removeEventListener('characteristicvaluechanged', onChanged);
+                resolve(hr);
+            };
+
+            characteristic.addEventListener('characteristicvaluechanged', onChanged);
+            characteristic.startNotifications().catch(() => {
+                if (!resolved) {
+                    resolved = true;
+                    clearTimeout(timeout);
+                    characteristic.removeEventListener('characteristicvaluechanged', onChanged);
+                    resolve(null);
+                }
+            });
+        });
+
+        if (Number.isFinite(hrFromNotification)) {
+            return Number(hrFromNotification);
+        }
+
+        // Fallback: readValue diretto (non supportato da tutti i device HR).
+        onStep?.('Notifica non ricevuta, tentativo lettura diretta...');
+        const value = await characteristic.readValue();
+        return Number(parseHeartRateMeasurement(value));
+    } finally {
+        try {
+            server.disconnect();
+        } catch {}
+    }
+}
+
+async function startBleAssistedBridge(username, onStep) {
+    if (!window.isSecureContext) {
+        throw new Error('Bluetooth richiede HTTPS o localhost');
+    }
     if (!navigator.bluetooth) {
         throw new Error('Web Bluetooth non supportato su questo browser/dispositivo');
     }
 
+    onStep?.('Apri selettore dispositivo Bluetooth...');
     const device = await navigator.bluetooth.requestDevice({
-        acceptAllDevices: true,
-        optionalServices: ['heart_rate', 'battery_service'],
+        filters: [{ services: ['heart_rate'] }],
+        optionalServices: ['battery_service', 'device_information'],
     });
 
     let heartRate = null;
     try {
-        const server = await device.gatt?.connect();
-        if (server) {
-            const service = await server.getPrimaryService('heart_rate');
-            const characteristic = await service.getCharacteristic('heart_rate_measurement');
-            const value = await characteristic.readValue();
-            const flags = value.getUint8(0);
-            heartRate = (flags & 0x1) ? value.getUint16(1, true) : value.getUint8(1);
-            server.disconnect();
-        }
+        heartRate = await readHeartRateFromGatt(device, onStep);
+        onStep?.(`Frequenza cardiaca letta: ${heartRate} bpm`);
     } catch {
-        // Alcuni device non espongono HR via GATT browser: fallback guidato.
+        onStep?.('Lettura HR non disponibile via browser: uso fallback guidato.');
     }
 
     const fallbackHr = heartRate ?? Number(prompt('Inserisci HR rilevato sul dispositivo (bpm):', '72') || 72);
@@ -2020,6 +2089,8 @@ async function startBleAssistedBridge(username) {
         last_bridge_at: new Date().toISOString(),
         sample_hr: Number.isFinite(fallbackHr) ? fallbackHr : 72,
     });
+
+    onStep?.('Bridge completato, dati inviati alla dashboard.');
 
     return {
         deviceName: device.name || 'BLE device',
@@ -2755,7 +2826,9 @@ async function boot() {
                 bridgeBtn.disabled = true;
                 if (bridgeStatus) bridgeStatus.textContent = 'Bridge BLE in corso...';
                 try {
-                    const out = await startBleAssistedBridge(dashboardUser);
+                    const out = await startBleAssistedBridge(dashboardUser, (step) => {
+                        if (bridgeStatus) bridgeStatus.textContent = step;
+                    });
                     if (bridgeStatus) {
                         bridgeStatus.textContent = `Bridge completato con ${out.deviceName} (HR ${out.hr} bpm).`;
                     }
