@@ -215,6 +215,7 @@ Set minimo target (in consolidamento):
 
 - `POST /wearable/sync`
 - `GET /wearable/status`
+- `GET /me`
 - `POST /journal/event`
 - `GET /journal/history`
 - `GET /risk/current`
@@ -415,6 +416,18 @@ Guida completa: [docs/go-live-epiguard.md](docs/go-live-epiguard.md)
 ```
 epilepsy-wearable-seizure/
 ├── app/
+│   ├── api/
+│   │   ├── account.py
+│   │   ├── dashboard.py
+│   │   ├── journal.py
+│   │   ├── risk.py
+│   │   └── wearable.py
+│   ├── services/
+│   │   ├── journal_service.py
+│   │   ├── risk_service.py
+│   │   └── sync_service.py
+│   ├── db/
+│   │   └── session.py
 │   ├── __init__.py
 │   ├── main.py          # FastAPI app principale
 │   ├── models.py        # Modelli Pydantic
@@ -489,12 +502,12 @@ Assicurati di aver:
 
 ## 📝 TODO Prioritari (riallineamento)
 
-- [ ] Ridurre il focus provider a Health Connect come priorita MVP
-- [ ] Separare chiaramente moduli backend (api/services/db/models)
-- [ ] Consolidare auth e declassare flussi demo/legacy fuori dal percorso principale
-- [ ] Spostare il cuore del rischio su pipeline time-series (baseline + anomalie)
-- [ ] Allineare web (analitica) e mobile (operativa) allo stesso contratto API
-- [ ] Migrare endpoint legacy verso naming unico e consistente
+- [x] Ridurre il focus provider a Health Connect come priorita MVP
+- [x] Separare chiaramente moduli backend (api/services/db/models)
+- [x] Consolidare auth e declassare flussi demo/legacy fuori dal percorso principale
+- [x] Spostare il cuore del rischio su pipeline time-series (baseline + anomalie)
+- [x] Allineare web (analitica) e mobile (operativa) allo stesso contratto API
+- [x] Migrare endpoint legacy verso naming unico e consistente (con backward compatibility temporanea)
 
 ## 📄 Licenza
 

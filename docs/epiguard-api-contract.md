@@ -31,7 +31,7 @@ Response:
 }
 ```
 
-## `POST /health/sync`
+## `POST /wearable/sync`
 Scopo: ingest dati biometrici da mobile companion.
 
 Request:
@@ -111,6 +111,12 @@ Response:
 ## `GET /profile`
 Scopo: dati profilo/account/consensi rapidi.
 
+## `GET /wearable/status`
+Scopo: stato sync e ultimo set segnali consolidato.
+
+## `GET /me`
+Scopo: profilo utente autenticato (account_type, provider_status, stato account).
+
 ## 3) Endpoint web (analitici)
 
 ## `GET /dashboard`
@@ -122,6 +128,9 @@ Scopo: dati profilo/account/consensi rapidi.
 
 ## `GET /health/timeline?from=...&to=...`
 - serie temporali segnali biometrici
+
+## `GET /dashboard/summary`
+- stato sintetico unico per home web/mobile
 
 ## `GET /reports?type=clinical_summary`
 - lista report generati/esportabili
