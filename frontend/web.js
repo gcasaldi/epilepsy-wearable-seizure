@@ -1899,6 +1899,62 @@ function describeMobileBleRoute() {
     return 'Web Bluetooth non disponibile su questo browser: usa bridge tramite app mobile (Health Connect/Apple Health) o integrazione OAuth provider.';
 }
 
+function bleCompatibilityReport() {
+    const ua = navigator.userAgent || '';
+    const isIOS = /iPhone|iPad|iPod/i.test(ua);
+    const isAndroid = /Android/i.test(ua);
+    const hasBluetoothApi = Boolean(navigator.bluetooth);
+    const secure = Boolean(window.isSecureContext);
+    const staticPages = isStaticPagesApiBase();
+
+    const report = {
+        items: [
+            { label: secure ? 'Contesto sicuro' : 'Contesto non sicuro', state: secure ? 'ok' : 'err' },
+            { label: hasBluetoothApi ? 'Web Bluetooth disponibile' : 'Web Bluetooth assente', state: hasBluetoothApi ? 'ok' : 'warn' },
+            { label: isAndroid ? 'Android' : (isIOS ? 'iOS' : 'Desktop/Altro'), state: (isAndroid || isIOS) ? 'ok' : 'warn' },
+            { label: staticPages ? 'Modalita Pages' : 'Backend API reale', state: staticPages ? 'warn' : 'ok' },
+        ],
+        strategy: '',
+        canTryDirectBle: false,
+    };
+
+    if (isIOS) {
+        report.strategy = 'Su iOS la strada robusta e universale e Companion App + Apple Health. Bluetooth diretto web non e affidabile.';
+        return report;
+    }
+
+    if (isAndroid && secure && hasBluetoothApi) {
+        report.strategy = 'Questo dispositivo puo provare Bluetooth diretto web subito. Se il watch non espone HR via browser, usa Companion App.';
+        report.canTryDirectBle = true;
+        return report;
+    }
+
+    if (!secure) {
+        report.strategy = 'Serve HTTPS (o localhost) per attivare Bluetooth nel browser. In alternativa usa Companion App + sync backend.';
+        return report;
+    }
+
+    if (!hasBluetoothApi) {
+        report.strategy = 'Browser senza Web Bluetooth: usa Companion App (universale) o inserimento manuale assistito.';
+        return report;
+    }
+
+    report.strategy = 'Configurazione mista: prova bridge BLE. Se non ricevi HR, passa a Companion App per compatibilita massima.';
+    report.canTryDirectBle = true;
+    return report;
+}
+
+function renderBleCompatibility(report) {
+    const chips = document.getElementById('bleCompatibilityChips');
+    const advice = document.getElementById('bleCompatibilityAdvice');
+    if (!chips || !advice) return;
+
+    chips.innerHTML = report.items
+        .map((item) => `<span class="compat-chip ${item.state}">${item.label}</span>`)
+        .join('');
+    advice.textContent = report.strategy;
+}
+
 function renderAlwaysOnAiPanel({ username, riskScore, hrCurrent, hrvCurrent, riskMessage }) {
     const statusEl = document.getElementById('aiPresenceStatus');
     const adviceEl = document.getElementById('aiPresenceAdvice');
@@ -2822,11 +2878,50 @@ async function boot() {
         const bridgeBtn = document.getElementById('bridgeBleAssistBtn');
         const bridgeStatus = document.getElementById('bridgeBleStatus');
         const dashboardBleRouteStatus = document.getElementById('mobileBleRouteStatus');
+        const bleRunCompatibility = document.getElementById('bleRunCompatibility');
+        const bleOpenCompanion = document.getElementById('bleOpenCompanion');
+        const bleGuideManual = document.getElementById('bleGuideManual');
         if (dashboardBleRouteStatus) {
             dashboardBleRouteStatus.textContent = describeMobileBleRoute();
         }
+        renderBleCompatibility(bleCompatibilityReport());
         const dashboardBleMeta = readJsonStorage(userScopedKey(dashboardUser, 'bridge_ble_meta'), null);
         updateBleIndicator(dashboardBleMeta?.last_bridge_at ? 'warn' : 'off');
+
+        if (bleRunCompatibility) {
+            bleRunCompatibility.addEventListener('click', () => {
+                const report = bleCompatibilityReport();
+                renderBleCompatibility(report);
+                if (bridgeStatus) {
+                    bridgeStatus.textContent = report.strategy;
+                }
+            });
+        }
+
+        if (bleOpenCompanion) {
+            bleOpenCompanion.addEventListener('click', () => {
+                window.location.href = appPath('/app');
+            });
+        }
+
+        if (bleGuideManual) {
+            bleGuideManual.addEventListener('click', () => {
+                const hrInput = document.getElementById('manualHeartRate');
+                const hrvInput = document.getElementById('manualHrv');
+                const sleepInput = document.getElementById('manualSleepHours');
+                const moveInput = document.getElementById('manualMovement');
+
+                if (hrInput) hrInput.focus();
+                if (hrInput && !hrInput.value) hrInput.value = '72';
+                if (hrvInput && !hrvInput.value) hrvInput.value = '45';
+                if (sleepInput && !sleepInput.value) sleepInput.value = '7.0';
+                if (moveInput && !moveInput.value) moveInput.value = '110';
+                if (bridgeStatus) {
+                    bridgeStatus.textContent = 'Compila i 4 campi manuali e premi "Salva valori manuali" per sincronizzare subito.';
+                }
+            });
+        }
+
         if (bridgeBtn) {
             bridgeBtn.addEventListener('click', async () => {
                 bridgeBtn.disabled = true;

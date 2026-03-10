@@ -338,6 +338,39 @@ textarea.form-control {
   margin-top: 0.45rem;
 }
 
+.compat-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.compat-chip {
+  border: 1px solid rgba(0, 242, 255, 0.25);
+  border-radius: 999px;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.75rem;
+  color: #c7d2de;
+  background: rgba(0, 242, 255, 0.08);
+}
+
+.compat-chip.ok {
+  border-color: rgba(40, 220, 130, 0.55);
+  background: rgba(40, 220, 130, 0.12);
+  color: #abf5cf;
+}
+
+.compat-chip.warn {
+  border-color: rgba(255, 196, 61, 0.6);
+  background: rgba(255, 196, 61, 0.15);
+  color: #ffe39c;
+}
+
+.compat-chip.err {
+  border-color: rgba(255, 79, 94, 0.7);
+  background: rgba(255, 79, 94, 0.15);
+  color: #ffc1c7;
+}
+
 .page-head p {
   margin-top: 0.45rem;
 }
