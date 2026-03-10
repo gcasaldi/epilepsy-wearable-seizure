@@ -1955,6 +1955,125 @@ function renderBleCompatibility(report) {
     advice.textContent = report.strategy;
 }
 
+function setCompatPillState(el, state, text) {
+    if (!el) return;
+    el.className = `compat-chip ${state || ''}`.trim();
+    el.textContent = text;
+}
+
+function telemetryHealthSnapshot(username) {
+    const bleInfo = readJsonStorage(userScopedKey(username, 'bridge_ble_meta'), null);
+    const manualInfo = readJsonStorage(userScopedKey(username, 'manual_biometric_meta'), null);
+    const syncInfo = readJsonStorage(userScopedKey(username, 'wearables_sync_meta'), null);
+
+    const timestamps = [
+        { source: 'bridge_ble', value: bleInfo?.last_bridge_at || null },
+        { source: 'manual', value: manualInfo?.last_manual_at || null },
+        { source: 'sync', value: syncInfo?.last_sync_at || null },
+    ].filter((entry) => entry.value);
+
+    if (!timestamps.length) {
+        return {
+            status: 'warn',
+            statusText: 'Stato: in attesa',
+            sourceText: 'Fonte: nessun dato recente',
+            latencyText: 'Latenza: N/D',
+            lastText: 'Ultimo dato ricevuto: N/D',
+        };
+    }
+
+    const latest = timestamps.sort((a, b) => new Date(b.value).getTime() - new Date(a.value).getTime())[0];
+    const diffMinutes = Math.max(0, Math.round((Date.now() - new Date(latest.value).getTime()) / 60000));
+
+    let status = 'ok';
+    let statusText = 'Stato: operativo';
+    if (diffMinutes > 30) {
+        status = 'err';
+        statusText = 'Stato: stale';
+    } else if (diffMinutes > 5) {
+        status = 'warn';
+        statusText = 'Stato: degradato';
+    }
+
+    const sourceLabel = {
+        bridge_ble: 'bridge Bluetooth',
+        manual: 'inserimento manuale',
+        sync: 'sync wearable',
+    }[latest.source] || latest.source;
+
+    return {
+        status,
+        statusText,
+        sourceText: `Fonte: ${sourceLabel}`,
+        latencyText: `Latenza: ${diffMinutes} min`,
+        lastText: `Ultimo dato ricevuto: ${new Date(latest.value).toLocaleString()}`,
+    };
+}
+
+function renderTelemetryHealthPanel(username) {
+    const statusPill = document.getElementById('telemetryStatusPill');
+    const sourcePill = document.getElementById('telemetrySourcePill');
+    const latencyPill = document.getElementById('telemetryLatencyPill');
+    const lastText = document.getElementById('telemetryLastReceived');
+    if (!statusPill || !sourcePill || !latencyPill || !lastText) return;
+
+    const snapshot = telemetryHealthSnapshot(username);
+    setCompatPillState(statusPill, snapshot.status, snapshot.statusText);
+    setCompatPillState(sourcePill, '', snapshot.sourceText);
+    setCompatPillState(latencyPill, snapshot.status === 'err' ? 'err' : (snapshot.status === 'warn' ? 'warn' : 'ok'), snapshot.latencyText);
+    lastText.textContent = snapshot.lastText;
+}
+
+function runDashboardOnboarding({ username, report, bridgeStatus }) {
+    const step1 = document.getElementById('onboardingStep1');
+    const step2 = document.getElementById('onboardingStep2');
+    const step3 = document.getElementById('onboardingStep3');
+    const status = document.getElementById('onboardingStatus');
+
+    if (!step1 || !step2 || !step3 || !status) return;
+
+    if (report.canTryDirectBle) {
+        setCompatPillState(step1, 'ok', '1. Compatibilita rilevata');
+        setCompatPillState(step2, 'warn', '2. Pronto a connessione BLE');
+    } else {
+        setCompatPillState(step1, 'warn', '1. Compatibilita parziale');
+        setCompatPillState(step2, 'warn', '2. Percorso Companion/fallback');
+    }
+
+    const telem = telemetryHealthSnapshot(username);
+    setCompatPillState(step3, telem.status === 'ok' ? 'ok' : 'warn', telem.status === 'ok' ? '3. Telemetria verificata' : '3. Telemetria da completare');
+
+    status.textContent = report.strategy;
+    if (bridgeStatus && !bridgeStatus.textContent.trim()) {
+        bridgeStatus.textContent = report.strategy;
+    }
+}
+
+async function smartConnectNow({ username, report, bridgeBtn, bridgeStatus }) {
+    if (report.canTryDirectBle && bridgeBtn) {
+        bridgeBtn.click();
+        return;
+    }
+
+    if (report.strategy.toLowerCase().includes('companion') || report.strategy.toLowerCase().includes('ios')) {
+        goTo('/app');
+        return;
+    }
+
+    const hrInput = document.getElementById('manualHeartRate');
+    const hrvInput = document.getElementById('manualHrv');
+    const sleepInput = document.getElementById('manualSleepHours');
+    const moveInput = document.getElementById('manualMovement');
+    if (hrInput) hrInput.focus();
+    if (hrvInput && !hrvInput.value) hrvInput.value = '45';
+    if (sleepInput && !sleepInput.value) sleepInput.value = '7.0';
+    if (moveInput && !moveInput.value) moveInput.value = '110';
+    if (bridgeStatus) {
+        bridgeStatus.textContent = 'Connessione diretta non disponibile: completa i campi manuali e salva per continuare.';
+    }
+    renderTelemetryHealthPanel(username);
+}
+
 function renderAlwaysOnAiPanel({ username, riskScore, hrCurrent, hrvCurrent, riskMessage }) {
     const statusEl = document.getElementById('aiPresenceStatus');
     const adviceEl = document.getElementById('aiPresenceAdvice');
@@ -2700,6 +2819,7 @@ async function boot() {
         const dashboardUser = user.username || 'user';
         const alertRules = getAlertRules(dashboardUser);
         setDataQualityBadge(dashboardUser);
+        renderTelemetryHealthPanel(dashboardUser);
 
         let therapiesState = [];
         let eventsState = readDashboardList(dashboardUser, 'events');
@@ -2867,6 +2987,7 @@ async function boot() {
                         manualBiometricStatus.textContent = 'Valori manuali salvati e attivi in dashboard.';
                     }
                     setDataQualityBadge(dashboardUser);
+                    renderTelemetryHealthPanel(dashboardUser);
                 } catch (err) {
                     if (manualBiometricStatus) {
                         manualBiometricStatus.textContent = `Errore salvataggio valori: ${err.message}`;
@@ -2881,17 +3002,44 @@ async function boot() {
         const bleRunCompatibility = document.getElementById('bleRunCompatibility');
         const bleOpenCompanion = document.getElementById('bleOpenCompanion');
         const bleGuideManual = document.getElementById('bleGuideManual');
+        const smartConnectNowBtn = document.getElementById('smartConnectNowBtn');
+        const dismissOnboardingBtn = document.getElementById('dismissOnboardingBtn');
+        const onboardingCard = document.getElementById('dashboardOnboardingCard');
         if (dashboardBleRouteStatus) {
             dashboardBleRouteStatus.textContent = describeMobileBleRoute();
         }
-        renderBleCompatibility(bleCompatibilityReport());
+        const compatibility = bleCompatibilityReport();
+        renderBleCompatibility(compatibility);
         const dashboardBleMeta = readJsonStorage(userScopedKey(dashboardUser, 'bridge_ble_meta'), null);
         updateBleIndicator(dashboardBleMeta?.last_bridge_at ? 'warn' : 'off');
+        runDashboardOnboarding({ username: dashboardUser, report: compatibility, bridgeStatus });
+
+        const onboardingDismissKey = userScopedKey(dashboardUser, 'onboarding_dismissed');
+        if (onboardingCard && localStorage.getItem(onboardingDismissKey) === '1') {
+            onboardingCard.classList.add('hidden');
+        }
+
+        if (dismissOnboardingBtn) {
+            dismissOnboardingBtn.addEventListener('click', () => {
+                localStorage.setItem(onboardingDismissKey, '1');
+                if (onboardingCard) onboardingCard.classList.add('hidden');
+            });
+        }
+
+        if (smartConnectNowBtn) {
+            smartConnectNowBtn.addEventListener('click', async () => {
+                const report = bleCompatibilityReport();
+                renderBleCompatibility(report);
+                runDashboardOnboarding({ username: dashboardUser, report, bridgeStatus });
+                await smartConnectNow({ username: dashboardUser, report, bridgeBtn, bridgeStatus });
+            });
+        }
 
         if (bleRunCompatibility) {
             bleRunCompatibility.addEventListener('click', () => {
                 const report = bleCompatibilityReport();
                 renderBleCompatibility(report);
+                runDashboardOnboarding({ username: dashboardUser, report, bridgeStatus });
                 if (bridgeStatus) {
                     bridgeStatus.textContent = report.strategy;
                 }
@@ -2936,6 +3084,8 @@ async function boot() {
                     }
                     updateBleIndicator('on');
                     setDataQualityBadge(dashboardUser);
+                    renderTelemetryHealthPanel(dashboardUser);
+                    runDashboardOnboarding({ username: dashboardUser, report: bleCompatibilityReport(), bridgeStatus });
                 } catch (err) {
                     const raw = String(err?.message || 'Errore sconosciuto');
                     let hint = raw;
@@ -2950,11 +3100,16 @@ async function boot() {
                         bridgeStatus.textContent = `Bridge non riuscito: ${hint}`;
                     }
                     updateBleIndicator('off');
+                    runDashboardOnboarding({ username: dashboardUser, report: bleCompatibilityReport(), bridgeStatus });
                 } finally {
                     bridgeBtn.disabled = false;
                 }
             });
         }
+
+        setInterval(() => {
+            renderTelemetryHealthPanel(dashboardUser);
+        }, 30000);
 
         const clinicalForm = document.getElementById('clinicalEventForm');
         if (clinicalForm) {

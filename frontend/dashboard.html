@@ -32,6 +32,36 @@
       <p id="dataSourceBadge" class="muted" style="margin-top:0.55rem;"></p>
     </section>
 
+    <section class="section" id="dashboardOnboardingCard">
+      <article class="card">
+        <h3>Onboarding Connessione (3 step)</h3>
+        <p class="muted">Configuro automaticamente il percorso migliore per collegare telefono e smartwatch.</p>
+        <div class="compat-grid" style="margin-top:0.6rem;">
+          <span id="onboardingStep1" class="compat-chip warn">1. Analisi compatibilita in corso...</span>
+          <span id="onboardingStep2" class="compat-chip">2. Connessione non avviata</span>
+          <span id="onboardingStep3" class="compat-chip">3. Telemetria non verificata</span>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:0.55rem; margin-top:0.7rem;">
+          <button id="smartConnectNowBtn" type="button" class="btn btn-primary">Connetti adesso</button>
+          <button id="dismissOnboardingBtn" type="button" class="btn btn-outline">Nascondi wizard</button>
+        </div>
+        <p id="onboardingStatus" class="muted" style="margin-top:0.6rem;">Sto valutando il percorso migliore per il tuo dispositivo...</p>
+      </article>
+    </section>
+
+    <section class="section">
+      <article class="card">
+        <h3>Telemetry Health Panel</h3>
+        <p class="muted">Controllo continuo dello stato telemetria: ultimo dato, fonte e latenza.</p>
+        <div class="compat-grid" style="margin-top:0.5rem;">
+          <span id="telemetryStatusPill" class="compat-chip warn">Stato: in attesa</span>
+          <span id="telemetrySourcePill" class="compat-chip">Fonte: N/D</span>
+          <span id="telemetryLatencyPill" class="compat-chip">Latenza: N/D</span>
+        </div>
+        <p id="telemetryLastReceived" class="muted" style="margin-top:0.55rem;">Ultimo dato ricevuto: N/D</p>
+      </article>
+    </section>
+
     <section class="kpi">
       <article class="card"><p class="muted">Ultimo rischio</p><h3 id="lastRisk">N/D</h3></article>
       <article class="card"><p class="muted">Consensi attivi</p><h3><a href="/consents">Gestisci</a></h3></article>
