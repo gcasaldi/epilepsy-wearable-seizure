@@ -25,7 +25,17 @@
       <p class="muted">L’app è il modo principale per i pazienti di monitorare l’epilessia.</p>
     </section>
 
-    <div id="mobileRedirectNotice" class="banner hidden">Browser mobile rilevato: reindirizzamento allo store in corso…</div>
+    <div id="mobileRedirectNotice" class="banner hidden">Dispositivo rilevato: ti proponiamo il percorso migliore qui sotto.</div>
+
+    <section class="card install-hero-card">
+      <h3>Installazione guidata</h3>
+      <p id="appPlatformBadge" class="platform-badge">Rilevamento dispositivo in corso...</p>
+      <p id="appInstallSteps" class="muted">Preparazione istruzioni...</p>
+      <div class="hero-actions" style="margin-top:0.8rem;">
+        <a id="installNowBtn" href="https://gcasaldi.github.io/epilepsy-wearable-seizure/wear-app/app/build/outputs/apk/debug/app-debug.apk" class="btn btn-primary">Installa adesso</a>
+        <button id="copyApkUrlBtn" class="btn btn-outline" type="button">Copia link APK</button>
+      </div>
+    </section>
 
     <section class="grid-2">
       <article class="card">
@@ -58,7 +68,10 @@
 
     <section class="section">
       <div class="card">
-        <p>L’accesso web è disponibile per consultazione e gestione avanzata.</p>
+        <h3>Se non parte l'installazione</h3>
+        <p class="muted">Android: Impostazioni > Sicurezza > consenti installazione da sorgenti sconosciute per il browser usato.</p>
+        <p class="muted">iPhone/iPad: APK non installabile su iOS, usa App Store/TestFlight quando disponibile.</p>
+        <p class="muted">L’accesso web resta disponibile per consultazione e gestione avanzata.</p>
       </div>
     </section>
   </main>
