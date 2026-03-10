@@ -2198,6 +2198,9 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
     if (bleLiveImportState.running) {
         throw new Error('Import BLE gia attivo');
     }
+    if (isStaticPagesApiBase() && isLocalFallbackEnabled()) {
+        throw new Error('Per import BLE reale serve backend API online. Imposta api_base reale (es. https://tuo-backend) e disattiva demo locale.');
+    }
     if (!window.isSecureContext) {
         throw new Error('Bluetooth richiede HTTPS o localhost');
     }
