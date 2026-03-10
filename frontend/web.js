@@ -3,6 +3,9 @@ const API_BASE_STORAGE_KEY = 'epiguard_api_base';
 const LOCAL_USERS_KEY = 'epiguard_local_users';
 const LOCAL_RECOVERY_TOKENS_KEY = 'epiguard_local_recovery_tokens';
 const LOCAL_FALLBACK_STORAGE_KEY = 'epiguard_local_fallback';
+const LOCAL_PASSKEYS_KEY = 'epiguard_local_passkeys';
+const GIULIA_EMAIL = 'giulia.casaldi@gmail.com';
+const GIULIA_PASSWORD = 'GiuliaEpi2026!';
 
 const ROUTE_TO_PAGE = {
     '/': 'index.html',
@@ -110,9 +113,18 @@ function isStaticPagesApiBase() {
 
 function isLocalFallbackEnabled() {
     const params = new URLSearchParams(window.location.search);
+    if (params.get('local_demo') === '0') {
+        localStorage.removeItem(LOCAL_FALLBACK_STORAGE_KEY);
+        return false;
+    }
     if (params.get('local_demo') === '1') {
         localStorage.setItem(LOCAL_FALLBACK_STORAGE_KEY, '1');
     }
+
+    if (isStaticPagesApiBase() && !localStorage.getItem(LOCAL_FALLBACK_STORAGE_KEY)) {
+        localStorage.setItem(LOCAL_FALLBACK_STORAGE_KEY, '1');
+    }
+
     return localStorage.getItem(LOCAL_FALLBACK_STORAGE_KEY) === '1';
 }
 
@@ -150,6 +162,25 @@ function getLocalRecoveryTokens() {
 
 function setLocalRecoveryTokens(tokens) {
     localStorage.setItem(LOCAL_RECOVERY_TOKENS_KEY, JSON.stringify(tokens));
+}
+
+function getLocalPasskeyState() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(LOCAL_PASSKEYS_KEY) || '{}');
+        if (!parsed || typeof parsed !== 'object') {
+            return { credentials_by_email: {}, challenges: {} };
+        }
+        return {
+            credentials_by_email: parsed.credentials_by_email || {},
+            challenges: parsed.challenges || {},
+        };
+    } catch {
+        return { credentials_by_email: {}, challenges: {} };
+    }
+}
+
+function setLocalPasskeyState(state) {
+    localStorage.setItem(LOCAL_PASSKEYS_KEY, JSON.stringify(state));
 }
 
 function makeLocalToken(profile) {
@@ -228,6 +259,17 @@ async function localApiFallback(path, options = {}) {
         const username = String(payload.username || '').trim().toLowerCase();
         const password = String(payload.password || '');
 
+        if (username === GIULIA_EMAIL && password === GIULIA_PASSWORD) {
+            const profile = { email: GIULIA_EMAIL, account_type: 'personal', provider_status: null };
+            return {
+                access_token: makeLocalToken(profile),
+                token_type: 'bearer',
+                expires_in: 60 * 60 * 24,
+                username: GIULIA_EMAIL,
+                mode: 'local-pages-fallback',
+            };
+        }
+
         if (username === providerDemoEmail && password === providerDemoPass) {
             const profile = { email: providerDemoEmail, account_type: 'provider', provider_status: 'provider_verified' };
             return {
@@ -265,6 +307,140 @@ async function localApiFallback(path, options = {}) {
             token_type: 'bearer',
             expires_in: 60 * 60 * 24,
             username: found.email,
+            mode: 'local-pages-fallback',
+        };
+    }
+
+    if (path === '/auth/passkey/register/options' && method === 'POST') {
+        const email = String(payload.email || '').trim().toLowerCase();
+        if (!email || !email.includes('@')) {
+            throw new Error('Email non valida');
+        }
+
+        const users = getLocalUsers();
+        if (!users.some((u) => u.email === email) && ![providerDemoEmail, patientDemoEmail, GIULIA_EMAIL].includes(email)) {
+            users.push({ email, password: '', account_type: 'personal', created_at: new Date().toISOString() });
+            setLocalUsers(users);
+        }
+
+        const state = getLocalPasskeyState();
+        const entries = state.credentials_by_email[email] || [];
+        const challenge = randomBase64url(32);
+        state.challenges[`${email}::register`] = {
+            challenge,
+            expires_at: Date.now() + (5 * 60 * 1000),
+        };
+        setLocalPasskeyState(state);
+
+        return {
+            options: {
+                challenge,
+                rp: { name: 'Epiguard', id: window.location.hostname },
+                user: {
+                    id: utf8Base64url(email),
+                    name: email,
+                    displayName: email,
+                },
+                pubKeyCredParams: [
+                    { type: 'public-key', alg: -7 },
+                    { type: 'public-key', alg: -257 },
+                ],
+                timeout: 60000,
+                excludeCredentials: entries.map((id) => ({ id, type: 'public-key' })),
+                authenticatorSelection: {
+                    residentKey: 'preferred',
+                    userVerification: 'preferred',
+                },
+                attestation: 'none',
+            },
+            expires_in_seconds: 300,
+            mode: 'local-pages-fallback',
+        };
+    }
+
+    if (path === '/auth/passkey/register/complete' && method === 'POST') {
+        const email = String(payload.email || '').trim().toLowerCase();
+        const credential = payload.credential || {};
+        const state = getLocalPasskeyState();
+        const challenge = state.challenges[`${email}::register`];
+        if (!challenge || Number(challenge.expires_at || 0) < Date.now()) {
+            throw new Error('Challenge passkey scaduta o non valida');
+        }
+        if (!credential.id) {
+            throw new Error('Credential ID passkey mancante');
+        }
+
+        const entries = state.credentials_by_email[email] || [];
+        if (!entries.includes(credential.id)) {
+            entries.push(credential.id);
+        }
+        state.credentials_by_email[email] = entries;
+        delete state.challenges[`${email}::register`];
+        setLocalPasskeyState(state);
+
+        return {
+            status: 'success',
+            message: 'Passkey biometrica registrata con successo (modalita locale).',
+            mode: 'local-pages-fallback',
+        };
+    }
+
+    if (path === '/auth/passkey/login/options' && method === 'POST') {
+        const email = String(payload.email || '').trim().toLowerCase();
+        const state = getLocalPasskeyState();
+        const entries = state.credentials_by_email[email] || [];
+        if (!entries.length) {
+            throw new Error('Nessuna passkey registrata per questo account');
+        }
+
+        const challenge = randomBase64url(32);
+        state.challenges[`${email}::login`] = {
+            challenge,
+            expires_at: Date.now() + (5 * 60 * 1000),
+        };
+        setLocalPasskeyState(state);
+
+        return {
+            options: {
+                challenge,
+                rpId: window.location.hostname,
+                timeout: 60000,
+                userVerification: 'preferred',
+                allowCredentials: entries.map((id) => ({ id, type: 'public-key' })),
+            },
+            expires_in_seconds: 300,
+            mode: 'local-pages-fallback',
+        };
+    }
+
+    if (path === '/auth/passkey/login/complete' && method === 'POST') {
+        const email = String(payload.email || '').trim().toLowerCase();
+        const credential = payload.credential || {};
+        const state = getLocalPasskeyState();
+        const challenge = state.challenges[`${email}::login`];
+        if (!challenge || Number(challenge.expires_at || 0) < Date.now()) {
+            throw new Error('Challenge passkey scaduta o non valida');
+        }
+
+        const entries = state.credentials_by_email[email] || [];
+        if (!credential.id || !entries.includes(credential.id)) {
+            throw new Error('Passkey non riconosciuta');
+        }
+
+        delete state.challenges[`${email}::login`];
+        setLocalPasskeyState(state);
+
+        const accountType = email === providerDemoEmail ? 'provider' : 'personal';
+        const profile = {
+            email,
+            account_type: accountType,
+            provider_status: accountType === 'provider' ? 'provider_verified' : null,
+        };
+        return {
+            access_token: makeLocalToken(profile),
+            token_type: 'bearer',
+            expires_in: 60 * 60 * 24,
+            username: email,
             mode: 'local-pages-fallback',
         };
     }
@@ -801,9 +977,14 @@ function canUsePasskeyWithCurrentSetup() {
     if (!window.isSecureContext) {
         return { ok: false, reason: 'Passkey richiede HTTPS o localhost (contesto sicuro).' };
     }
-    if (isStaticPagesApiBase()) {
+    if (isStaticPagesApiBase() && !isLocalFallbackEnabled()) {
         return { ok: false, reason: 'Passkey richiede backend API reale. Imposta api_base verso il tuo backend.' };
     }
+
+    if (isStaticPagesApiBase() && isLocalFallbackEnabled()) {
+        return { ok: true, reason: '' };
+    }
+
     return { ok: true, reason: '' };
 }
 
@@ -825,6 +1006,17 @@ function arrayBufferToBase64url(buffer) {
         binary += String.fromCharCode(bytes[i]);
     }
     return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function randomBase64url(size = 32) {
+    const bytes = new Uint8Array(size);
+    crypto.getRandomValues(bytes);
+    return arrayBufferToBase64url(bytes.buffer);
+}
+
+function utf8Base64url(value) {
+    const bytes = new TextEncoder().encode(String(value || ''));
+    return arrayBufferToBase64url(bytes.buffer);
 }
 
 function preparePasskeyCreationOptions(options) {
