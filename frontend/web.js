@@ -3984,6 +3984,8 @@ async function boot() {
 
         const manualBiometricForm = document.getElementById('manualBiometricForm');
         const manualBiometricStatus = document.getElementById('manualBiometricStatus');
+        const sleepQuickForm = document.getElementById('sleepQuickForm');
+        const sleepQuickStatus = document.getElementById('sleepQuickStatus');
         if (manualBiometricForm) {
             manualBiometricForm.addEventListener('submit', async (event) => {
                 event.preventDefault();
@@ -4013,6 +4015,23 @@ async function boot() {
                         manualBiometricStatus.textContent = `Errore salvataggio valori: ${err.message}`;
                     }
                 }
+            });
+        }
+
+        if (sleepQuickForm) {
+            sleepQuickForm.addEventListener('submit', (event) => {
+                event.preventDefault();
+                const sleepHours = Number(document.getElementById('sleepQuickHours')?.value);
+                if (!Number.isFinite(sleepHours) || sleepHours < 0 || sleepHours > 24) {
+                    if (sleepQuickStatus) sleepQuickStatus.textContent = 'Valore sonno non valido. Inserisci un numero tra 0 e 24.';
+                    return;
+                }
+                recordSleepHoursEntry(dashboardUser, sleepHours, 'sleep-tab');
+                renderSleepSummary(dashboardUser, riskHistoryRows);
+                if (sleepQuickStatus) {
+                    sleepQuickStatus.textContent = `Ore sonno salvate: ${sleepHours.toFixed(1)} h. Media aggiornata.`;
+                }
+                sleepQuickForm.reset();
             });
         }
 

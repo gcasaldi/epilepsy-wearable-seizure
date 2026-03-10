@@ -77,8 +77,14 @@
           <div id="riskHistoryList" class="demo-form"></div>
         </article>
         <article class="card">
-          <h3>Sonno (sezione separata)</h3>
+          <h3>Sonno</h3>
           <p class="muted">Le ore di sonno non sono nel grafico rischio: vengono salvate a parte e mediate con i valori disponibili da smartwatch/backend.</p>
+          <form id="sleepQuickForm" class="demo-form" style="margin-top:0.6rem;">
+            <label for="sleepQuickHours">Tab sonno: quante ore hai dormito</label>
+            <input id="sleepQuickHours" class="form-control" type="number" min="0" max="24" step="0.1" placeholder="es. 7.5" required>
+            <button type="submit" class="btn btn-outline">Salva ore sonno</button>
+          </form>
+          <p id="sleepQuickStatus" class="muted">Inserisci le ore e premi Salva.</p>
           <p id="sleepLastManual" class="muted">Ultimo sonno salvato: N/D</p>
           <p id="sleepWatchCount" class="muted">Campioni sonno da smartwatch/backend: 0</p>
           <p id="sleepAvgCombined" class="muted">Media combinata sonno: N/D</p>
