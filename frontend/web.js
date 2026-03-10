@@ -794,6 +794,19 @@ function supportsPasskey() {
     return Boolean(window.PublicKeyCredential && navigator.credentials && navigator.credentials.create && navigator.credentials.get);
 }
 
+function canUsePasskeyWithCurrentSetup() {
+    if (!supportsPasskey()) {
+        return { ok: false, reason: 'Passkey non supportata su questo browser/dispositivo.' };
+    }
+    if (!window.isSecureContext) {
+        return { ok: false, reason: 'Passkey richiede HTTPS o localhost (contesto sicuro).' };
+    }
+    if (isStaticPagesApiBase()) {
+        return { ok: false, reason: 'Passkey richiede backend API reale. Imposta api_base verso il tuo backend.' };
+    }
+    return { ok: true, reason: '' };
+}
+
 function base64urlToUint8Array(base64url) {
     const padded = `${base64url}`.replace(/-/g, '+').replace(/_/g, '/');
     const normalized = padded + '='.repeat((4 - (padded.length % 4)) % 4);
@@ -2010,18 +2023,20 @@ async function boot() {
             return email;
         };
 
-        if (!supportsPasskey()) {
+        const passkeySetup = canUsePasskeyWithCurrentSetup();
+        if (!passkeySetup.ok) {
             if (passkeyRegisterBtn) passkeyRegisterBtn.disabled = true;
             if (passkeyLoginBtn) passkeyLoginBtn.disabled = true;
-            setPasskeyInfo('Passkey non supportata su questo browser/dispositivo.');
+            setPasskeyInfo(passkeySetup.reason);
         }
 
         if (passkeyRegisterBtn) {
             passkeyRegisterBtn.addEventListener('click', async () => {
                 showError(error, '');
                 try {
-                    if (!supportsPasskey()) {
-                        throw new Error('Passkey non supportata su questo dispositivo');
+                    const setup = canUsePasskeyWithCurrentSetup();
+                    if (!setup.ok) {
+                        throw new Error(setup.reason);
                     }
 
                     const email = readPasskeyEmail();
@@ -2060,8 +2075,9 @@ async function boot() {
             passkeyLoginBtn.addEventListener('click', async () => {
                 showError(error, '');
                 try {
-                    if (!supportsPasskey()) {
-                        throw new Error('Passkey non supportata su questo dispositivo');
+                    const setup = canUsePasskeyWithCurrentSetup();
+                    if (!setup.ok) {
+                        throw new Error(setup.reason);
                     }
 
                     const email = readPasskeyEmail();

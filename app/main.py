@@ -272,6 +272,51 @@ def _consume_passkey_challenge(db, email: str, flow: str) -> PasskeyChallenge:
     db.commit()
     return row
 
+
+def _normalize_origin_from_request(http_request: Request) -> str:
+    origin = (http_request.headers.get("origin") or "").strip()
+    if origin:
+        parsed = urllib.parse.urlparse(origin)
+        if parsed.scheme in {"http", "https"} and parsed.hostname:
+            port = parsed.port
+            include_port = bool(port and not ((parsed.scheme == "https" and port == 443) or (parsed.scheme == "http" and port == 80)))
+            return f"{parsed.scheme}://{parsed.hostname}{f':{port}' if include_port else ''}"
+
+    host = (http_request.headers.get("host") or http_request.url.netloc or "").strip()
+    host = host.split("/")[0]
+    return f"{http_request.url.scheme}://{host}" if host else ""
+
+
+def _resolve_webauthn_context(http_request: Request) -> tuple[str, list[str]]:
+    resolved_origin = _normalize_origin_from_request(http_request)
+    parsed = urllib.parse.urlparse(resolved_origin) if resolved_origin else None
+    host = (parsed.hostname if parsed else None) or settings.passkey_rp_id
+
+    # WebAuthn RP ID non puo essere un IP diverso da localhost: normalizziamo 127.0.0.1 -> localhost.
+    rp_id = "localhost" if host in {"127.0.0.1", "localhost"} else host
+
+    expected_origins: list[str] = []
+    if resolved_origin:
+        expected_origins.append(resolved_origin)
+
+    if rp_id == "localhost":
+        expected_origins.extend(["http://localhost:8000", "http://127.0.0.1:8000"])
+    else:
+        expected_origins.extend([f"https://{rp_id}", f"http://{rp_id}"])
+
+    expected_origins.extend(settings.passkey_origins)
+
+    # Dedup mantenendo ordine.
+    deduped: list[str] = []
+    seen = set()
+    for item in expected_origins:
+        key = item.strip()
+        if key and key not in seen:
+            seen.add(key)
+            deduped.append(key)
+
+    return rp_id, deduped
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
@@ -506,6 +551,7 @@ async def begin_passkey_registration(payload: PasskeyBeginRequest, http_request:
     auth_rate_limiter.check(limiter_key)
 
     email = _validate_email(payload.email)
+    rp_id, _ = _resolve_webauthn_context(http_request)
 
     db = SessionLocal()
     try:
@@ -523,7 +569,7 @@ async def begin_passkey_registration(payload: PasskeyBeginRequest, http_request:
         ]
 
         options = generate_registration_options(
-            rp_id=settings.passkey_rp_id,
+            rp_id=rp_id,
             rp_name=settings.passkey_rp_name,
             user_id=user.id.encode("utf-8"),
             user_name=user.email,
@@ -554,6 +600,7 @@ async def complete_passkey_registration(payload: PasskeyCompleteRequest, http_re
     auth_rate_limiter.check(limiter_key)
 
     email = _validate_email(payload.email)
+    rp_id, expected_origins = _resolve_webauthn_context(http_request)
 
     db = SessionLocal()
     try:
@@ -567,8 +614,8 @@ async def complete_passkey_registration(payload: PasskeyCompleteRequest, http_re
         verified = verify_registration_response(
             credential=RegistrationCredential.parse_raw(json.dumps(payload.credential)),
             expected_challenge=expected_challenge,
-            expected_rp_id=settings.passkey_rp_id,
-            expected_origin=settings.passkey_origins,
+            expected_rp_id=rp_id,
+            expected_origin=expected_origins,
             require_user_verification=True,
         )
 
@@ -622,6 +669,7 @@ async def begin_passkey_login(payload: PasskeyBeginRequest, http_request: Reques
     auth_rate_limiter.check(limiter_key)
 
     email = _validate_email(payload.email)
+    rp_id, _ = _resolve_webauthn_context(http_request)
 
     db = SessionLocal()
     try:
@@ -637,7 +685,7 @@ async def begin_passkey_login(payload: PasskeyBeginRequest, http_request: Reques
             PublicKeyCredentialDescriptor(id=base64url_to_bytes(row.credential_id)) for row in credentials
         ]
         options = generate_authentication_options(
-            rp_id=settings.passkey_rp_id,
+            rp_id=rp_id,
             allow_credentials=allow_credentials,
             user_verification=UserVerificationRequirement.PREFERRED,
         )
@@ -664,6 +712,7 @@ async def complete_passkey_login(payload: PasskeyCompleteRequest, http_request: 
     auth_rate_limiter.check(limiter_key)
 
     email = _validate_email(payload.email)
+    rp_id, expected_origins = _resolve_webauthn_context(http_request)
 
     db = SessionLocal()
     try:
@@ -692,8 +741,8 @@ async def complete_passkey_login(payload: PasskeyCompleteRequest, http_request: 
         verified = verify_authentication_response(
             credential=AuthenticationCredential.parse_raw(json.dumps(payload.credential)),
             expected_challenge=expected_challenge,
-            expected_rp_id=settings.passkey_rp_id,
-            expected_origin=settings.passkey_origins,
+            expected_rp_id=rp_id,
+            expected_origin=expected_origins,
             credential_public_key=base64url_to_bytes(credential_row.public_key),
             credential_current_sign_count=int(credential_row.sign_count),
             require_user_verification=True,
