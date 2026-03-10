@@ -873,6 +873,19 @@ async function localApiFallback(path, options = {}) {
     }
 
     if (path === '/api/predict' && method === 'POST') {
+        const profile = getLocalProfileFromToken();
+        if (profile) {
+            const key = userBiometricSamplesKey(profile.email);
+            const samples = readJsonStorage(key, []);
+            samples.push({
+                timestamp: new Date().toISOString(),
+                heart_rate: Number(payload.heart_rate || 72),
+                hrv: Number(payload.hrv || estimateHrvFromHeartRate(Number(payload.heart_rate || 72))),
+                sleep_hours: Number(payload.sleep_hours || 7),
+                movement: Number(payload.movement || 110),
+            });
+            writeJsonStorage(key, samples.slice(-1000));
+        }
         const result = computeDemoRisk(payload);
         return {
             ...result,
@@ -2309,10 +2322,10 @@ const bleLiveImportState = {
     running: false,
     timerId: null,
     sampleCount: 0,
+    latestSample: null,
     device: null,
     server: null,
     characteristic: null,
-    batteryCharacteristic: null,
     listener: null,
 };
 
@@ -2323,27 +2336,13 @@ function estimateHrvFromHeartRate(hr) {
     return Math.max(20, Math.min(95, Math.round(62 - ((boundedHr - 60) * 0.45))));
 }
 
-async function readBatteryLevel(server) {
-    try {
-        const batteryService = await server.getPrimaryService('battery_service');
-        const batteryChar = await batteryService.getCharacteristic('battery_level');
-        const value = await batteryChar.readValue();
-        return Number(value.getUint8(0));
-    } catch {
-        return null;
-    }
-}
-
-function buildWearableAlertMessage({ hr, hrv, battery }) {
+function buildWearableAlertMessage({ hr, hrv }) {
     const causes = [];
     if (Number.isFinite(hr) && (hr < 45 || hr > 130)) {
         causes.push(`HR ${Math.round(hr)} bpm`);
     }
     if (Number.isFinite(hrv) && hrv < 25) {
         causes.push(`HRV ${Math.round(hrv)} ms`);
-    }
-    if (Number.isFinite(battery) && battery < 15) {
-        causes.push(`Batteria ${Math.round(battery)}%`);
     }
     return causes.length
         ? `Allerta Epiguard: valori anomali (${causes.join(', ')}). Apri la web app.`
@@ -2375,44 +2374,20 @@ async function trySendBleAlertToWearable(server, message, onStep) {
     return false;
 }
 
-async function readOneBleSample(characteristic, onStep) {
-    let resolved = false;
-    return new Promise((resolve) => {
-        const timeout = setTimeout(async () => {
-            if (resolved) return;
-            resolved = true;
-            try {
-                await characteristic.stopNotifications();
-            } catch {}
-            try {
-                const value = await characteristic.readValue();
-                const details = parseHeartRateMeasurementDetails(value);
-                resolve(details);
-            } catch {
-                resolve({ heartRate: null, rrIntervalsMs: [] });
-            }
-        }, 20000);
-
-        const onChanged = async (event) => {
-            if (resolved) return;
-            resolved = true;
-            clearTimeout(timeout);
-            const value = event.target?.value;
-            const details = value ? parseHeartRateMeasurementDetails(value) : { heartRate: null, rrIntervalsMs: [] };
-            try {
-                await characteristic.stopNotifications();
-            } catch {}
-            characteristic.removeEventListener('characteristicvaluechanged', onChanged);
-            resolve(details);
+async function readOneBleSample(characteristic, latestSample) {
+    if (latestSample && (Date.now() - latestSample.tsMs) < (BLE_CAPTURE_INTERVAL_MS + 2 * 60 * 1000)) {
+        return {
+            heartRate: latestSample.hr,
+            rrIntervalsMs: Number.isFinite(latestSample.rrMs) ? [latestSample.rrMs] : [],
         };
+    }
 
-        characteristic.addEventListener('characteristicvaluechanged', onChanged);
-        characteristic.startNotifications().catch(() => {
-            if (!resolved) {
-                onStep?.('Notifiche non disponibili: uso lettura diretta.');
-            }
-        });
-    });
+    try {
+        const value = await characteristic.readValue();
+        return parseHeartRateMeasurementDetails(value);
+    } catch {
+        return { heartRate: null, rrIntervalsMs: [] };
+    }
 }
 
 async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnalysis }) {
@@ -2433,7 +2408,7 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
 
     const device = await navigator.bluetooth.requestDevice({
         acceptAllDevices: true,
-        optionalServices: ['heart_rate', 'battery_service', 'device_information'],
+        optionalServices: ['heart_rate', 'device_information', 'immediate_alert'],
     });
 
     const server = await device.gatt?.connect();
@@ -2446,16 +2421,37 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
 
     bleLiveImportState.running = true;
     bleLiveImportState.sampleCount = 0;
+    bleLiveImportState.latestSample = null;
     bleLiveImportState.device = device;
     bleLiveImportState.server = server;
     bleLiveImportState.characteristic = characteristic;
     onStep?.(`Dispositivo connesso: ${device.name || 'BLE device'}. Avvio monitoraggio automatico ogni 15 minuti...`);
 
+    const liveListener = (event) => {
+        const value = event?.target?.value;
+        if (!value) return;
+        const details = parseHeartRateMeasurementDetails(value);
+        const hr = Number(details.heartRate);
+        const rrAvg = details.rrIntervalsMs?.length
+            ? Math.round(details.rrIntervalsMs.reduce((a, b) => a + b, 0) / details.rrIntervalsMs.length)
+            : null;
+        if (!Number.isFinite(hr)) return;
+        bleLiveImportState.latestSample = {
+            hr,
+            rrMs: Number.isFinite(rrAvg) ? rrAvg : null,
+            tsMs: Date.now(),
+        };
+    };
+
+    bleLiveImportState.listener = liveListener;
+    characteristic.addEventListener('characteristicvaluechanged', liveListener);
+    await characteristic.startNotifications();
+
     const captureAndAnalyze = async () => {
         if (!bleLiveImportState.running) return;
         onStep?.('Rilevazione BLE in corso...');
 
-        const details = await readOneBleSample(characteristic, onStep);
+        const details = await readOneBleSample(characteristic, bleLiveImportState.latestSample);
         const hr = Number(details.heartRate);
         if (!Number.isFinite(hr)) {
             onStep?.('Rilevazione non riuscita: nessun battito letto dal device.');
@@ -2466,14 +2462,12 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
             ? Math.round(details.rrIntervalsMs.reduce((a, b) => a + b, 0) / details.rrIntervalsMs.length)
             : null;
         const hrvFromRr = Number.isFinite(rrAvg) ? rrAvg : null;
-        const battery = await readBatteryLevel(server);
 
         bleLiveImportState.sampleCount += 1;
         const sampleCount = bleLiveImportState.sampleCount;
 
         onTelemetry?.({
             heart_rate: hr,
-            battery_level: battery,
             rr_interval_ms: rrAvg,
             hrv_estimate: Number.isFinite(hrvFromRr) ? hrvFromRr : estimateHrvFromHeartRate(hr),
             sample_count: sampleCount,
@@ -2502,13 +2496,12 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
                 device_name: device.name || 'BLE device',
                 last_bridge_at: new Date().toISOString(),
                 sample_hr: hr,
-                battery_level: battery,
                 rr_interval_ms: rrAvg,
                 mode: 'live-15m',
                 samples_total: sampleCount,
             });
 
-            const alertMessage = buildWearableAlertMessage({ hr, hrv: payload.hrv, battery });
+            const alertMessage = buildWearableAlertMessage({ hr, hrv: payload.hrv });
             let alertSentToWearable = false;
             if (alertMessage) {
                 alertSentToWearable = await trySendBleAlertToWearable(server, alertMessage, onStep);
@@ -2529,7 +2522,6 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
                 prediction,
                 payload,
                 sampleCount,
-                battery,
                 rrIntervalMs: rrAvg,
                 alertSentToWearable,
                 deviceName: device.name || 'BLE device',
@@ -2584,10 +2576,10 @@ async function stopBleLiveImportSession() {
     bleLiveImportState.running = false;
     bleLiveImportState.timerId = null;
     bleLiveImportState.sampleCount = 0;
+    bleLiveImportState.latestSample = null;
     bleLiveImportState.device = null;
     bleLiveImportState.server = null;
     bleLiveImportState.characteristic = null;
-    bleLiveImportState.batteryCharacteristic = null;
     bleLiveImportState.listener = null;
 }
 
@@ -3584,13 +3576,10 @@ async function boot() {
                         onTelemetry: (sample) => {
                             hrCurrent = Number(sample.heart_rate || hrCurrent);
                             if (bleLiveStats) {
-                                const batteryText = Number.isFinite(Number(sample.battery_level))
-                                    ? ` · batteria ${Math.round(Number(sample.battery_level))}%`
-                                    : '';
                                 const rrText = Number.isFinite(Number(sample.rr_interval_ms))
                                     ? ` · RR ${Math.round(Number(sample.rr_interval_ms))} ms`
                                     : '';
-                                bleLiveStats.textContent = `Campioni BLE importati: ${sample.sample_count} · HR ${sample.heart_rate} bpm${rrText}${batteryText}`;
+                                bleLiveStats.textContent = `Campioni BLE importati: ${sample.sample_count} · HR ${sample.heart_rate} bpm${rrText}`;
                             }
                             const manualHeartRate = document.getElementById('manualHeartRate');
                             if (manualHeartRate) {
@@ -3599,7 +3588,7 @@ async function boot() {
                             setDataQualityBadge(dashboardUser);
                             renderTelemetryHealthPanel(dashboardUser);
                         },
-                        onAnalysis: async ({ prediction, payload, sampleCount, battery, rrIntervalMs, alertSentToWearable, deviceName }) => {
+                        onAnalysis: async ({ prediction, payload, sampleCount, rrIntervalMs, alertSentToWearable, deviceName }) => {
                             lastRiskScore = Number(prediction.risk_score || lastRiskScore || 0);
                             lastRiskMessage = prediction.message || lastRiskMessage || 'Analisi aggiornata da BLE';
                             hrvCurrent = Number(payload.hrv || hrvCurrent || 0);
@@ -3642,16 +3631,14 @@ async function boot() {
                             });
 
                             if (bridgeStatus) {
-                                const batteryText = Number.isFinite(Number(battery)) ? ` · batteria ${Math.round(Number(battery))}%` : '';
                                 const rrText = Number.isFinite(Number(rrIntervalMs)) ? ` · RR ${Math.round(Number(rrIntervalMs))} ms` : '';
                                 const alertText = buildWearableAlertMessage({
                                     hr: payload.heart_rate,
                                     hrv: payload.hrv,
-                                    battery,
                                 })
                                     ? (alertSentToWearable ? ' · alert inviato al wearable' : ' · alert anomalia inviato alla web app')
                                     : '';
-                                bridgeStatus.textContent = `Monitor BLE 15m: ${deviceName} · campione ${sampleCount} analizzato dalla AI${rrText}${batteryText}${alertText}.`;
+                                bridgeStatus.textContent = `Monitor BLE 15m: ${deviceName} · campione ${sampleCount} analizzato dalla AI${rrText}${alertText}.`;
                             }
 
                             // Ogni 3 analisi aggiorna anche lo storico dal backend.
@@ -3969,7 +3956,11 @@ async function boot() {
                 if (statusEl) statusEl.textContent = 'Intervallo non valido: la data di inizio supera la fine.';
                 return;
             }
-            const query = buildRangeQuery(startIso, endIso);
+            const params = new URLSearchParams();
+            if (startIso) params.set('start', startIso);
+            if (endIso) params.set('end', endIso);
+            params.set('limit', '5000');
+            const query = `?${params.toString()}`;
             const rows = await api(`/api/risk-history${query}`);
             lastHistoryRows = Array.isArray(rows) ? rows : [];
 
