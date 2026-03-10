@@ -962,7 +962,15 @@ async function loadProfile() {
     try {
         return await api('/api/me');
     } catch {
-        return null;
+        const token = getToken();
+        if (!token) return null;
+        const subject = readUsernameFromToken(token);
+        if (!subject) return null;
+        return {
+            username: subject,
+            email: subject,
+            account_type: 'personal',
+        };
     }
 }
 
@@ -4261,4 +4269,24 @@ async function boot() {
     }
 }
 
-document.addEventListener('DOMContentLoaded', boot);
+document.addEventListener('DOMContentLoaded', () => {
+    boot().catch((err) => {
+        console.error('Boot error:', err);
+        const message = `Errore inizializzazione app: ${err?.message || 'sconosciuto'}`;
+        const statusTargets = [
+            document.getElementById('bridgeBleStatus'),
+            document.getElementById('v2Status'),
+            document.getElementById('loginError'),
+        ];
+        let shown = false;
+        statusTargets.forEach((el) => {
+            if (el) {
+                el.textContent = message;
+                shown = true;
+            }
+        });
+        if (!shown) {
+            alert(message);
+        }
+    });
+});
