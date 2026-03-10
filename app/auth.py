@@ -116,6 +116,20 @@ def get_local_account_profile(username: str, password: str) -> Optional[dict]:
                 "auth_provider": "demo",
             }
 
+    # Account reale test mantenuto per continuita operativa in ambiente dev/staging.
+    if (
+        settings.giulia_email
+        and settings.giulia_password
+        and username.strip().lower() == settings.giulia_email.strip().lower()
+        and password == settings.giulia_password
+    ):
+        return {
+            "email": settings.giulia_email.strip().lower(),
+            "account_type": "personal",
+            "provider_status": None,
+            "auth_provider": "local_seed",
+        }
+
     return None
 
 
