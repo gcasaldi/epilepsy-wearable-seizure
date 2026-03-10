@@ -1616,7 +1616,6 @@ function renderRiskHistory(items) {
         const level = riskLabel(item.risk_score).toLowerCase();
         const hr = Number.isFinite(Number(item.heart_rate)) ? `${Math.round(Number(item.heart_rate))} bpm` : 'N/D';
         const hrv = Number.isFinite(Number(item.hrv)) ? `${Number(item.hrv).toFixed(1)} ms` : 'N/D';
-        const sleep = Number.isFinite(Number(item.sleep_hours)) ? `${Number(item.sleep_hours).toFixed(1)} h` : 'N/D';
         const movement = Number.isFinite(Number(item.movement)) ? `${Math.round(Number(item.movement))}` : 'N/D';
         return `
             <div class="card" style="padding: 0.6rem; margin-bottom: 0.5rem;">
@@ -1627,7 +1626,7 @@ function renderRiskHistory(items) {
                 <div style="height:8px; background:rgba(255,255,255,0.08); margin-top:0.35rem;">
                     <div style="height:8px; width:${pct}%; background:linear-gradient(90deg,#00ff88,#ffcc00,#ff3131);"></div>
                 </div>
-                <p class="muted" style="margin-top:0.35rem;">HR ${hr} · HRV ${hrv} · Sonno ${sleep} · Movimento ${movement}</p>
+                <p class="muted" style="margin-top:0.35rem;">HR ${hr} · HRV ${hrv} · Movimento ${movement}</p>
             </div>
         `;
     }).join('');
@@ -1667,7 +1666,6 @@ function renderV2RiskHistory(items) {
         const level = riskLabel(Number(item.risk_score || 0)).toLowerCase();
         const hr = Number.isFinite(Number(item.heart_rate)) ? `${Math.round(Number(item.heart_rate))} bpm` : 'N/D';
         const hrv = Number.isFinite(Number(item.hrv)) ? `${Number(item.hrv).toFixed(1)} ms` : 'N/D';
-        const sleep = Number.isFinite(Number(item.sleep_hours)) ? `${Number(item.sleep_hours).toFixed(1)} h` : 'N/D';
         const movement = Number.isFinite(Number(item.movement)) ? `${Math.round(Number(item.movement))}` : 'N/D';
         return `
             <div class="card" style="padding:0.55rem; margin-bottom:0.45rem;">
@@ -1675,7 +1673,7 @@ function renderV2RiskHistory(items) {
                     <span class="muted">${new Date(item.timestamp).toLocaleString()}</span>
                     <strong class="risk-${level}">${pct}%</strong>
                 </div>
-                <p class="muted" style="margin-top:0.3rem;">HR ${hr} · HRV ${hrv} · Sonno ${sleep} · Movimento ${movement}</p>
+                <p class="muted" style="margin-top:0.3rem;">HR ${hr} · HRV ${hrv} · Movimento ${movement}</p>
             </div>
         `;
     }).join('');
@@ -1746,6 +1744,50 @@ function readDashboardList(username, key) {
 
 function writeDashboardList(username, key, value) {
     writeJsonStorage(userScopedKey(username, key), value);
+}
+
+function recordSleepHoursEntry(username, hours, source = 'manual') {
+    const sleep = Number(hours);
+    if (!Number.isFinite(sleep) || sleep < 0 || sleep > 24) return;
+    const rows = readDashboardList(username, 'sleep_hours_entries');
+    rows.unshift({
+        timestamp: new Date().toISOString(),
+        hours: Number(sleep.toFixed(2)),
+        source,
+    });
+    writeDashboardList(username, 'sleep_hours_entries', rows.slice(0, 240));
+}
+
+function renderSleepSummary(username, historyRows = []) {
+    const lastEl = document.getElementById('sleepLastManual');
+    const countEl = document.getElementById('sleepWatchCount');
+    const avgEl = document.getElementById('sleepAvgCombined');
+    if (!lastEl || !countEl || !avgEl) return;
+
+    const manualRows = readDashboardList(username, 'sleep_hours_entries');
+    const watchSleepValues = (Array.isArray(historyRows) ? historyRows : [])
+        .map((row) => Number(row.sleep_hours))
+        .filter((v) => Number.isFinite(v));
+    const manualSleepValues = manualRows
+        .map((row) => Number(row.hours))
+        .filter((v) => Number.isFinite(v));
+
+    if (manualRows.length) {
+        const latest = manualRows[0];
+        lastEl.textContent = `Ultimo sonno salvato: ${Number(latest.hours).toFixed(1)} h (${new Date(latest.timestamp).toLocaleString()})`;
+    } else {
+        lastEl.textContent = 'Ultimo sonno salvato: N/D';
+    }
+
+    countEl.textContent = `Campioni sonno da smartwatch/backend: ${watchSleepValues.length}`;
+
+    const combined = [...watchSleepValues, ...manualSleepValues];
+    if (!combined.length) {
+        avgEl.textContent = 'Media combinata sonno: N/D';
+        return;
+    }
+    const avg = combined.reduce((a, b) => a + b, 0) / combined.length;
+    avgEl.textContent = `Media combinata sonno: ${avg.toFixed(1)} h (${combined.length} campioni totali)`;
 }
 
 function renderEventTimeline(events, onDelete) {
@@ -3796,6 +3838,7 @@ async function boot() {
         let therapiesState = [];
         let eventsState = readDashboardList(dashboardUser, 'events');
         let remindersState = readDashboardList(dashboardUser, 'reminders');
+        let riskHistoryRows = [];
 
         try {
             const prediction = await api('/api/test');
@@ -3809,13 +3852,16 @@ async function boot() {
 
         try {
             const history = await api('/api/risk-history');
+            riskHistoryRows = Array.isArray(history) ? history : [];
             renderRiskChart(history);
             renderRiskHistory(history);
+            renderSleepSummary(dashboardUser, riskHistoryRows);
             if (history.length) {
                 lastRiskScore = Number(history[0].risk_score || lastRiskScore);
             }
         } catch {
             renderRiskHistory([]);
+            renderSleepSummary(dashboardUser, []);
         }
 
         try {
@@ -3955,6 +4001,8 @@ async function boot() {
                     writeJsonStorage(userScopedKey(dashboardUser, 'manual_biometric_meta'), {
                         last_manual_at: new Date().toISOString(),
                     });
+                    recordSleepHoursEntry(dashboardUser, sleep_hours, 'manual');
+                    renderSleepSummary(dashboardUser, riskHistoryRows);
                     if (manualBiometricStatus) {
                         manualBiometricStatus.textContent = 'Valori manuali salvati e attivi in dashboard.';
                     }
@@ -4174,8 +4222,10 @@ async function boot() {
                             if (sampleCount % 3 === 0) {
                                 try {
                                     const history = await api('/api/risk-history');
+                                    riskHistoryRows = Array.isArray(history) ? history : [];
                                     renderRiskChart(history);
                                     renderRiskHistory(history);
+                                    renderSleepSummary(dashboardUser, riskHistoryRows);
                                 } catch {}
                             }
                         },
@@ -4350,6 +4400,7 @@ async function boot() {
         await refreshTherapies();
         refreshEvents();
         refreshReminders();
+        renderSleepSummary(dashboardUser, riskHistoryRows);
         renderDeepAiAnalysis({
             riskScore: lastRiskScore,
             riskMessage: lastRiskMessage,
