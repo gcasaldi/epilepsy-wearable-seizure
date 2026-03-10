@@ -2124,12 +2124,19 @@ function telemetryHealthSnapshot(username) {
     const latest = timestamps.sort((a, b) => new Date(b.value).getTime() - new Date(a.value).getTime())[0];
     const diffMinutes = Math.max(0, Math.round((Date.now() - new Date(latest.value).getTime()) / 60000));
 
+    const ble15mMode = latest.source === 'bridge_ble' && bleInfo?.mode === 'live-15m';
+    const warnThreshold = ble15mMode ? 20 : 5;
+    const errThreshold = ble15mMode ? 45 : 30;
+
     let status = 'ok';
     let statusText = 'Stato: operativo';
-    if (diffMinutes > 30) {
+    if (bleLiveImportState.running && latest.source === 'bridge_ble') {
+        statusText = 'Stato: monitor BLE attivo';
+    }
+    if (diffMinutes > errThreshold) {
         status = 'err';
         statusText = 'Stato: stale';
-    } else if (diffMinutes > 5) {
+    } else if (diffMinutes > warnThreshold) {
         status = 'warn';
         statusText = 'Stato: degradato';
     }
@@ -2336,6 +2343,7 @@ function parseHeartRateMeasurementDetails(dataView) {
 const bleLiveImportState = {
     running: false,
     timerId: null,
+    keepAliveTimerId: null,
     sampleCount: 0,
     latestSample: null,
     recentSamples: [],
@@ -2463,8 +2471,8 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
         throw new Error('Connessione GATT non disponibile');
     }
 
-    const service = await server.getPrimaryService('heart_rate');
-    const characteristic = await service.getCharacteristic('heart_rate_measurement');
+    let service = await server.getPrimaryService('heart_rate');
+    let characteristic = await service.getCharacteristic('heart_rate_measurement');
 
     bleLiveImportState.running = true;
     bleLiveImportState.sampleCount = 0;
@@ -2498,11 +2506,34 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
     };
 
     bleLiveImportState.listener = liveListener;
-    characteristic.addEventListener('characteristicvaluechanged', liveListener);
-    await characteristic.startNotifications();
+
+    const bindListener = async () => {
+        characteristic.removeEventListener('characteristicvaluechanged', liveListener);
+        characteristic.addEventListener('characteristicvaluechanged', liveListener);
+        await characteristic.startNotifications();
+        bleLiveImportState.characteristic = characteristic;
+    };
+
+    await bindListener();
+
+    const ensureBleConnection = async () => {
+        if (!bleLiveImportState.running) return;
+        if (device.gatt?.connected) return;
+        onStep?.('Connessione BLE persa: tentativo riconnessione automatica...');
+        const newServer = await device.gatt?.connect();
+        if (!newServer) {
+            throw new Error('Riconnessione GATT non disponibile');
+        }
+        bleLiveImportState.server = newServer;
+        service = await newServer.getPrimaryService('heart_rate');
+        characteristic = await service.getCharacteristic('heart_rate_measurement');
+        await bindListener();
+        onStep?.('Riconnessione BLE riuscita.');
+    };
 
     const captureAndAnalyze = async () => {
         if (!bleLiveImportState.running) return;
+        await ensureBleConnection();
         onStep?.('Rilevazione BLE in corso...');
 
         const details = await readOneBleSample(characteristic, bleLiveImportState, onStep);
@@ -2603,6 +2634,9 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
     bleLiveImportState.timerId = setInterval(() => {
         captureAndAnalyze().catch((err) => onStep?.(`Errore monitoraggio BLE: ${err.message}`));
     }, BLE_CAPTURE_INTERVAL_MS);
+    bleLiveImportState.keepAliveTimerId = setInterval(() => {
+        ensureBleConnection().catch((err) => onStep?.(`Riconnessione BLE fallita: ${err.message}`));
+    }, 30000);
 
     onStep?.(`Monitor BLE attivo: campione ogni 15 minuti da ${device.name || 'BLE device'}.`);
 
@@ -2617,10 +2651,13 @@ async function startBleLiveImportSession({ username, onStep, onTelemetry, onAnal
 async function stopBleLiveImportSession() {
     if (!bleLiveImportState.running) return;
 
-    const { timerId, characteristic, listener, server } = bleLiveImportState;
+    const { timerId, keepAliveTimerId, characteristic, listener, server } = bleLiveImportState;
 
     if (timerId) {
         clearInterval(timerId);
+    }
+    if (keepAliveTimerId) {
+        clearInterval(keepAliveTimerId);
     }
 
     try {
@@ -2643,6 +2680,7 @@ async function stopBleLiveImportSession() {
 
     bleLiveImportState.running = false;
     bleLiveImportState.timerId = null;
+    bleLiveImportState.keepAliveTimerId = null;
     bleLiveImportState.sampleCount = 0;
     bleLiveImportState.latestSample = null;
     bleLiveImportState.recentSamples = [];
