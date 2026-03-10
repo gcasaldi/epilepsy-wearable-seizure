@@ -1583,7 +1583,7 @@ async def test_prediction(current_user: str = Depends(get_current_user)):
 async def get_risk_history(
     start: Optional[datetime] = Query(default=None),
     end: Optional[datetime] = Query(default=None),
-    limit: int = Query(default=24, ge=1, le=5000),
+    limit: int = Query(default=5000, ge=1, le=5000),
     current_user: str = Depends(get_current_user),
 ):
     db = SessionLocal()

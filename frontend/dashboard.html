@@ -120,14 +120,14 @@
             <button id="bridgeBleStopBtn" type="button" class="btn btn-outline">Stop monitor BLE</button>
             <span id="bridgeBleStatus" class="muted">Bridge BLE non avviato.</span>
           </div>
-          <p id="bleLiveStats" class="muted" style="margin-top:0.5rem;">Campioni BLE importati: 0 · HR/RR/batteria in attesa.</p>
+          <p id="bleLiveStats" class="muted" style="margin-top:0.5rem;">Campioni BLE importati: 0 · HR/RR in attesa.</p>
           <div class="card" style="margin-top:0.8rem; padding:0.8rem;">
             <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.4rem;">
               <span id="bleIndicator" class="ble-indicator ble-indicator-off"></span>
               <strong id="bleIndicatorLabel">BLE: non attivo</strong>
             </div>
             <p id="mobileBleRouteStatus" class="muted" style="margin:0;"></p>
-            <p class="muted" style="margin-top:0.5rem;">Compatibilita pratica: valori realistici cross-watch via browser sono soprattutto battito cardiaco (HR), intervallo RR/HRV se esposto e batteria dispositivo. SpO2/pressione/stress spesso sono proprietari e richiedono companion app.</p>
+            <p class="muted" style="margin-top:0.5rem;">Compatibilita pratica: per rilevazione crisi in modo universale usiamo HR e, se disponibile, RR/HRV. Altri valori (SpO2, stress, pressione) sono spesso proprietari e non affidabili via BLE web standard.</p>
             <div id="bleCompatibilityChips" class="compat-grid" style="margin-top:0.7rem;"></div>
             <p id="bleCompatibilityAdvice" class="muted" style="margin-top:0.6rem;"></p>
             <div style="display:flex; flex-wrap:wrap; gap:0.5rem; margin-top:0.7rem;">
