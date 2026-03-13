@@ -37,12 +37,9 @@ function appBasePath() {
     const parts = window.location.pathname.split('/').filter(Boolean);
     if (!parts.length) return '';
 
-    // If app is served from /<repo>/frontend/*.html, keep both segments.
-    if (parts.length >= 2 && parts[1] === 'frontend') {
-        return `/${parts[0]}/${parts[1]}`;
-    }
-
-    return `/${parts[0]}`;
+    // On GitHub Pages this project serves app pages from /<repo>/frontend/*.
+    // Force this base to avoid mixing legacy root pages and frontend pages.
+    return `/${parts[0]}/frontend`;
 }
 
 function normalizeBaseUrl(url) {
